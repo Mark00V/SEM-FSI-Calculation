@@ -1,0 +1,2079 @@
+
+
+(* ============================================== *)
+(* Initialize compiled shape functions and supplimentary compiled functions *)
+Needs["initsmoll`"]; (* initsmoll for order 1,2,3,4 *)
+<<Developer`
+(* ============================================== *)
+
+(* ============================================== *)
+(* Main function *)
+calcfsi[m_,nodemethod_,freq_,elenxlinks_,elenxrechts_,eleny_]:=
+Module[{zi,calceigenwerte,elesx,elesy,rohflleft,rohflright,\[Omega],nlayers,draum1,dwand,rl,rr,wand,nodesrl,nodesrr,nodeswand,nodesuvwand,maxnoderl,maxnodewand,maxnoderr,innernodesl,innernodesr,coupfll,coupflr,coupstl,coupstr,heallelements,heleft,heright,hesysleft,nodesrlg,nodeswanduvg,nodesrrg,allnodes,maxnodesys,boundarygrl,boundarygwand,boundarygrr,sourcelist,hesysright,assem,syssteif,sysmass,sysmatfreq,boundaryelementsluo,boundaryelementsll,boundaryelementsruo,boundaryelementsrr,zuordtabimpedanzboundaryuo,zuordtabimpedanzboundarylr,zuordtabimpedanzboundary,impbel,impber,allimplast,allrb3elementslengthuo,allrb3elementslengthlr,rb3elelr,impmat,ielem,atrb23,lastvektor,mpsource,sources,boundarylv,druck,lenboundarylv,sysmatfreqred,replistfreq,solutionallnodes,masskond,allpl,allpr,spllv,splrv,splnvl,splnvr,intmeanapl,intmeanapr,intmeanspll,intmeansplr,solution,solutionlefth,solutionwandh,solutionrighth,alltimings,timewandteilung,timecalcallmats,timenodescalc,timekoppmats,timerbnodes,timeassembworb,timeimpmat,atrb1,atreduce,atlv,atsol,syskond,atlp,atavgspl,timesonst,timeimpmatzuord,timeimpedanzlast,timeimpedanzsysmat,timeassembimpmat,meanspls,timeimpedanz,impcalcy,impcalcx,rb3eleuo,allimpuo,allimplr,posinzuo,posinzlr,impmatuo,impmatlr,timekond,elesxlinks,elesxrechts,impcalcxrl,impcalcxrr,zuordtabimpedanzboundaryuol,zuordtabimpedanzboundaryuor,rb3eleuol,rb3eleuor,allrb3elementslengthuol,allrb3elementslengthuor,allimpuol,posinzuol,impmatuol,allimpuor,posinzuor,impmatuor,rb3valuel,rb3valuer,zuordtabimpedanzboundaryleftroomleft,zuordtabimpedanzboundaryrightroomright,impcalcyrl,impcalcyrr,allrb3elementslengthlinkerraumlinks,allrb3elementslengthrechterraumrechts,rb3elell,allimplinkerraumlinks,posinzlinkerraumlinks,impmatlinkerraumlinks,rb3elerr,allimprechterraumrechts,posinzrechterraumrechts,impmatrechterraumrechts,timeassembhe,timeassembsteif,timeassembmass,timeassemball,allnodeswodiri,maxmemusedls,wanddetailsetc,splnodes,alpha,absorbraum,swand,rsabineadjust,splnvlsabadjusted,splnvrsabadjusted,splnodessabadjusted},
+
+(* ======================================================================== *)
+(* Globale Variablen: *)
+(*
+rxsizerl=2.0; (* Globale Variable zur Festlegung der Größe der Räume in x-Richtung Raum links *)
+rxsizerr=3.0; (* Globale Variable zur Festlegung der Größe der Räume in x-Richtung Raum rechts *)
+rysize=3.0;  (* Globale Variable zur Festlegung der Größe der Räume in y-Richtung *)
+usemkxmgelements=True; (* Globale Variable zur Festlegung ob mkxmg Elemente für dünne Wände verwendet werden sollen *)
+calcsyscondition=False; (* Globale Variable zur Festlegung ob Kondition berechnet werden soll *)
+intspl=False; (* Globale Variable zur Festlegung ob der mittlere Schalldruck integriert werden soll *)
+howtotreatdiri="delete";(* Behandlung von Dirichlet Randbedingungen bei Wand \[Rule] Verschiebungen=0, "delete" für Löschen von Zeilen und Spalten und "transform" für Anpassung *)
+nodemethod="lobatto";
+integrationmethodwand="gl"; (* Globale Variable zur Definition der Integrationsmethode der Wand "lob" oder "gl" *)
+integrationmethodfluid="lob";  (* Globale Variable zur Definition der Integrationsmethode der Fluiddomänen "lob" oder "gl" *)
+whereami="text"; (* Fortschrittsanzeige der Berechnung *)
+*)
+(* ======================================================================== *)
+
+(* ======================================================================== *)
+(* Allgemeine Parameter *)
+calceigenwerte=0;
+alltimings={};
+(* ======================================================================== *)
+
+(* ======================================================================== *)
+(* Räume links und rechts *)
+elesxlinks=1/elenxlinks*rxsizerl; (* Größe der Elemente in globaler x-Richtung für Raum links *)
+elesxrechts=1/elenxrechts*rxsizerr; (* Größe der Elemente in globaler x-Richtung für Raum links *)
+elesy=1/eleny*rysize;(* Größe der Elemente in globaler y-Richtung für Raum links und rechts *)
+
+rohflleft=rohair; (* Dichte der Luft für Raum links *)
+rohflright=rohair; (* Dichte der Luft für Raum rechts *)
+\[Omega]=freq*2.Pi;
+(* ======================================================================== *)
+
+(* ======================================================================== *)
+(* Nummerisierung *)
+elesxlinks=N[elesxlinks];
+elesxrechts=N[elesxrechts];
+elesy=N[elesy];
+rohflleft=N[rohflleft];
+rohflright=N[rohflright];
+(* ======================================================================== *)
+
+(* ======================================================================== *)
+(* Dimension der Wand *)
+draum1=elenxlinks*elesxlinks;
+dwand=Total[dimlayers];
+(* ======================================================================== *)
+
+(* ======================================================================== *)
+(* Berechnung der System-Steifigkeitsmatrizen *)
+whereami="Berechnung aller Systemmatrizen";
+timecalcallmats=AbsoluteTiming[
+rl=calcfluidleft[m,cair,nodemethod,integrationmethodfluid,elenxlinks,eleny,elesxlinks,elesy];
+rr=calcfluidright[m,cair,nodemethod,integrationmethodfluid,elenxrechts,eleny,elesxrechts,elesy];
+wand=calcwallsysmat[m,dimlayers,emodul,roh,mu,svzustand,nodemethod,integrationmethodwand,eleny,elesy,elesxlinks];
+];
+AppendTo[alltimings,{timecalcallmats,"Timing Berechnung aller Systemmatrizen"}];
+(* ======================================================================== *)
+
+(* ======================================================================== *)
+whereami="Knotenberechnung, innere Knoten";
+timenodescalc=AbsoluteTiming[
+(* Liste aller Knoten der einzelnen Bereiche *)
+nodesrl=rl[[4]];
+nodesrr=rr[[4]];
+(*
+nodeswand=Table[{wand[[5]][[i,1]]+draum1,wand[[5]][[i,2]],wand[[5]][[i,3]]},{i,1,Length[wand[[5]]]}];
+nodesuvwand=Table[{wand[[6]][[i,1]]+draum1,wand[[6]][[i,2]],wand[[6]][[i,3]]},{i,1,Length[wand[[6]]]}];
+*)
+
+nodeswand=Table[{wand[[5]][[i,1]],wand[[5]][[i,2]],wand[[5]][[i,3]]},{i,1,Length[wand[[5]]]}];
+nodesuvwand=Table[{wand[[6]][[i,1]],wand[[6]][[i,2]],wand[[6]][[i,3]]},{i,1,Length[wand[[6]]]}];
+
+(* Maximale Knotennummer für die einzelnen Bereiche *)
+maxnoderl=Max[nodesrl[[;;,3]]];
+maxnodewand=Max[nodesuvwand[[;;,3]]]; (* Bezieht sich auf uv-Knoten (also 2*geometrische Knoten) *)
+maxnoderr=Max[nodesrr[[;;,3]]];
+
+(* Berechnet alle inneren Knoten im Raum. innernodesl für linken Raum und innernodesr für rechten Raum *)
+Module[{lengthblu,lengthblr,firnl},
+lengthblu=Length[rl[[5]][[1]]];
+lengthblr=Length[rl[[5]][[2]]];
+firnl=rl[[5]][[1]][[2;;lengthblu-1]];
+innernodesl=Sort@Flatten@Table[Range[firnl[[i]]+1,firnl[[i]]+lengthblr-2],{i,1,Length[firnl]}];
+innernodesr=innernodesl+maxnoderl+maxnodewand;
+];
+];
+AppendTo[alltimings,{timenodescalc,"Timing Knotenberechnung, innere Knoten"}];
+(* ======================================================================== *)
+
+(* ======================================================================== *)
+whereami="Kopplungsmatrizen";
+timekoppmats=AbsoluteTiming[
+(* Erstelle Zuordnungstabelle für die einzelnen Kopplungsmatrizen: Fluid links, Wand links, Fluid rechts, Wand rechts *)
+coupfll=Partition[rl[[5]][[2]],m+1,m];  (* Fluid links *)
+coupflr=Partition[rr[[5]][[4]],m+1,m] ; (* Fluid rechts *)
+coupstl=Partition[wand[[7]][[4]],2(m+1),m*2]; (* Linke Seite Wand *)
+coupstr=Partition[wand[[7]][[2]],2(m+1),m*2]; (* Rechte Seite Wand *)
+
+(* Kopplungsmatrizen *)
+(* Erstelle Kopplungsmatrizen für einzelnes Element Fluid-Struktur und assembliere in System-Kopplungsmatrix*)
+heallelements=koppmat[m,nodemethod,elesy];
+heleft=heallelements;
+heright=heallelements;
+];
+AppendTo[alltimings,{timekoppmats,"Timing Kopplungsmatrizen"}];
+(* ======================================================================== *)
+
+(* ======================================================================== *)
+whereami="Globale Knoten und Randbedingungsknoten";
+timerbnodes=AbsoluteTiming[
+(* Globale Knoten *)
+(* Globale Wandknoten (uv)=Lokale Wandknoten(uv)+max(Raum 1) *)
+(* Globale Knoten Raum rechts=Lokale Knoten Raum 1+ Max(Raum 1)+ Max(Wand(uv)) *)
+nodesrlg=nodesrl;
+nodeswanduvg=Transpose[{nodesuvwand[[;;,1]]}~Join~{nodesuvwand[[;;,2]]}~Join~{nodesuvwand[[;;,3]]+maxnoderl}];
+nodesrrg=Transpose[{nodesrr[[;;,1]]}~Join~{nodesrr[[;;,2]]}~Join~{nodesrr[[;;,3]]+maxnoderl+maxnodewand}];
+allnodes=nodesrlg~Join~nodeswanduvg~Join~nodesrrg;
+maxnodesys=Last[allnodes][[3]];
+
+(* Globale Knoten für Randbedingungen *)
+(* Jeweils Listen der Form {{globale Knoten unten},{globale Knoten rechts},{globale Knoten oben},{globale Knoten links}} *)
+boundarygrl=Table[rl[[5]][[i]],{i,1,4}];(* Globale Knoten für Rand für Fluid in Raum links *)
+boundarygwand=Table[wand[[7]][[i]]+maxnoderl,{i,1,4}];(* Globale Knoten für Rand für Wand *)
+boundarygrr=Table[rr[[5]][[i]]+maxnoderl+maxnodewand,{i,1,4}];(* Globale Knoten für Rand für Fluid in Raum rechts *)
+
+(* Positionen der Quellen *)
+(* Ermittelt Knotennummer und Position des Knotens der am nähesten zur gegegenen Quellenposition lieg *)
+Module[{abweichungposlistx,closestposx,abweichungposlisty,closestposxy,posquelle},
+sourcelist=Table[
+abweichungposlistx=Abs[nodesrl[[;;,1]]-quellenpos[[i]][[1]]];
+closestposx=Flatten[Position[abweichungposlistx,Min[abweichungposlistx]],1];
+abweichungposlisty=Abs[nodesrl[[closestposx,2]]-quellenpos[[i]][[2]]];
+closestposxy=Position[abweichungposlisty,Min[abweichungposlisty]][[1]];
+posquelle=nodesrl[[closestposx[[closestposxy]],3]];
+posquelle,
+{i,1,Length[quellenpos]}
+];
+];
+];
+AppendTo[alltimings,{timerbnodes,"Timing Globale Knoten und Randbedingungsknoten"}];
+(* ======================================================================== *)
+
+(* ======================================================================== *)
+whereami="Assemblierung H-Matrizen";
+timeassembhe=AbsoluteTiming[
+(* Assemblierung links *)
+hesysleft=assembsysc[maxnoderl,maxnodewand,coupfll,coupstl,heleft];
+
+(* Assemblierung rechts *)
+hesysright=assembsysc[maxnoderr,maxnodewand,coupflr,coupstr,heright];
+];
+AppendTo[alltimings,{timeassembhe,"Timing Assemblierung H-Matrizen"}];
+(* ======================================================================== *)
+
+(* ======================================================================== *)
+whereami="Berechnung Zuordnungsmatrizen Impedanz";
+timeimpmatzuord=AbsoluteTiming[
+(* ===================================== *)
+(* Impedanz *)
+rb3valuel=1/zilinks;
+rb3valuer=1/zirechts;
+
+(* Randeelemente mit Impedanzbedingung für beide Räume *)
+boundaryelementsluo=Partition[boundarygrl[[1]],m+1,m]~Join~Partition[boundarygrl[[3]],m+1,m];
+boundaryelementsll=Partition[boundarygrl[[4]],m+1,m];
+boundaryelementsruo=Partition[boundarygrr[[1]],m+1,m]~Join~Partition[boundarygrr[[3]],m+1,m];
+boundaryelementsrr=Partition[boundarygrr[[2]],m+1,m];
+zuordtabimpedanzboundaryuol=boundaryelementsluo;
+zuordtabimpedanzboundaryuor=boundaryelementsruo;
+zuordtabimpedanzboundaryleftroomleft=boundaryelementsll;
+zuordtabimpedanzboundaryrightroomright=boundaryelementsrr;
+zuordtabimpedanzboundary=zuordtabimpedanzboundaryuol~Join~zuordtabimpedanzboundaryuor~Join~zuordtabimpedanzboundaryleftroomleft~Join~zuordtabimpedanzboundaryrightroomright;
+];
+AppendTo[alltimings,{timeimpmatzuord,"Timing Berechnung Zuordnungsmatrizen Impedanz"}];
+(* ======================================================================== *)
+
+(* ======================================================================== *)
+whereami="Impedanzteil für Lastvektor";
+timeimpedanz=AbsoluteTiming[
+(* Berechne Impedanzteile für Lastvektor und Matrix *)
+(* x-Direction *)
+impcalcxrl=randelementerb2[elesxlinks,Range[1,m+1],rb3valuel,m,nodemethod]; (* Linker Raum oben und unten Kante *)
+impcalcxrr=randelementerb2[elesxrechts,Range[1,m+1],rb3valuer,m,nodemethod]; (* Rechter Raum oben und unten Kante *)
+(* y-Direction *)
+impcalcyrl=randelementerb2[elesy,Range[1,m+1],rb3valuel,m,nodemethod];  (* Linker Raum linke Kante *)
+impcalcyrr=randelementerb2[elesy,Range[1,m+1],rb3valuer,m,nodemethod];  (* Rechter Raum rechte Kante *)
+
+allimplast=Table[Transpose[{boundaryelementsluo[[i]],impcalcxrl[[1]][[;;,2]]}],{i,1,Length[boundaryelementsluo]}]~Join~
+Table[Transpose[{boundaryelementsruo[[i]],impcalcxrr[[1]][[;;,2]]}],{i,1,Length[boundaryelementsruo]}]~Join~
+Table[Transpose[{boundaryelementsll[[i]],impcalcyrl[[1]][[;;,2]]}],{i,1,Length[boundaryelementsll]}]~Join~
+Table[Transpose[{boundaryelementsrr[[i]],impcalcyrr[[1]][[;;,2]]}],{i,1,Length[boundaryelementsrr]}];
+];
+AppendTo[alltimings,{timeimpedanz,"Timing Impedanzteil für Lastvektor"}];
+(* ======================================================================== *)
+
+(* ======================================================================== *)
+(* Für Systemmatrix *)
+whereami="Impedanzteil für Systemmatrix";
+timeimpedanzsysmat=AbsoluteTiming[
+(* Alle Randelemente oben und unten linker Raum*)
+allrb3elementslengthuol=Length[zuordtabimpedanzboundaryuol];
+Table[rb3eleuol[i]=impcalcxrl[[2]],{i,1,allrb3elementslengthuol}];
+
+(* Alle Randelemente oben und unten rechter Raum*)
+allrb3elementslengthuor=Length[zuordtabimpedanzboundaryuor];
+Table[rb3eleuor[i]=impcalcxrr[[2]],{i,1,allrb3elementslengthuor}];
+
+(* Alle Randelemente linkser Raum linke Kante *)
+allrb3elementslengthlinkerraumlinks=Length[zuordtabimpedanzboundaryleftroomleft];
+Table[rb3elell[i]=impcalcyrl[[2]],{i,1,allrb3elementslengthlinkerraumlinks}];
+
+(* Alle Randelemente rechter Raum rechte Kante *)
+allrb3elementslengthrechterraumrechts=Length[zuordtabimpedanzboundaryrightroomright];
+Table[rb3elerr[i]=impcalcyrr[[2]],{i,1,allrb3elementslengthrechterraumrechts}];
+];
+AppendTo[alltimings,{timeimpedanzsysmat,"Timing Impedanzteil für Systemmatrix"}];
+(* ======================================================================== *)
+
+(* ======================================================================== *)
+whereami="Assembliere Impedanzmatrix";
+timeassembimpmat=AbsoluteTiming[
+allimpuol=ToPackedArray[Table[rb3eleuol[ielem],{ielem,1,allrb3elementslengthuol}]];
+allimpuor=ToPackedArray[Table[rb3eleuor[ielem],{ielem,1,allrb3elementslengthuor}]];
+allimplinkerraumlinks=ToPackedArray[Table[rb3elell[ielem],{ielem,1,allrb3elementslengthlinkerraumlinks}]];
+allimprechterraumrechts=ToPackedArray[Table[rb3elerr[ielem],{ielem,1,allrb3elementslengthrechterraumrechts}]];
+
+posinzuol = Flatten[ Map[ Outer[ List,#,#]&,zuordtabimpedanzboundaryuol],2];
+posinzuor = Flatten[ Map[ Outer[ List,#,#]&,zuordtabimpedanzboundaryuor],2];
+posinzlinkerraumlinks = Flatten[ Map[ Outer[ List,#,#]&,zuordtabimpedanzboundaryleftroomleft],2];
+posinzrechterraumrechts = Flatten[ Map[ Outer[ List,#,#]&,zuordtabimpedanzboundaryrightroomright],2];
+
+impmatuol=matrixAssembly[allimpuol,posinzuol,maxnodesys];
+impmatuor=matrixAssembly[allimpuor,posinzuor,maxnodesys];
+impmatlinkerraumlinks=matrixAssembly[allimplinkerraumlinks,posinzlinkerraumlinks,maxnodesys];
+impmatrechterraumrechts=matrixAssembly[allimprechterraumrechts,posinzrechterraumrechts,maxnodesys];
+
+impmat=impmatuol+impmatuor+impmatlinkerraumlinks+impmatrechterraumrechts;
+];
+AppendTo[alltimings,{timeassembimpmat,"Timing Assembliere Impedanzmatrix"}];
+(* ======================================================================== *)
+
+(* ======================================================================== *)
+whereami="Monopolquelle und Impedanz in Lastvektor";
+atrb23=AbsoluteTiming[
+(* ======================================================================== *)
+(* Initialisierung der Systemmatrizen und Lastvektor *)
+lastvektor=SparseArray[{1->0,maxnodesys->0}];
+
+(* Randbedingungen *)
+(* ===================================== *)
+(* Monopolquellen *)
+(* mpsource=4Pi/rohair*Sqrt[2*rohair*\[Omega]/((2Pi)^2)]; *)
+mpsource=0.025*4Pi/rohair*Sqrt[2*rohair*\[Omega]/((2Pi)^2)];
+(*sources={{sourcelist[[1]],mpsource},{sourcelist[[2]],mpsource},{sourcelist[[3]],mpsource}};*)
+sources=Table[{sourcelist[[i]],mpsource},{i,1,Length[sourcelist]}];
+
+(* Einbau der Monopolquellen *)
+Table[lastvektor[[sources[[i,1]]]]=lastvektor[[sources[[i,1]]]]+sources[[i,2]],{i,1,Length[sources]}];
+(* ===================================== *)
+
+(* ===================================== *)
+(* Initialisierung systemmatrizen *)
+];
+AppendTo[alltimings,{atrb23,"Timing Monopolquelle und Impedanz in Lastvektor"}];
+(* ======================================================================== *)
+
+(* ======================================================================== *)
+whereami="Assemblierung Systemsteifigkeitsmatrix";
+timeassembsteif=AbsoluteTiming[
+syssteif=sysmatassemsteif[rl,rr,wand,hesysleft,hesysright,rohair,cair];
+];
+AppendTo[alltimings,{timeassembsteif,"Timing Assemblierung Systemsteifigkeitsmatrix"}];
+
+whereami="Assemblierung Systemsmassenmatrix";
+timeassembmass=AbsoluteTiming[
+sysmass=sysmatassemmass[rl,rr,wand,hesysleft,hesysright,rohair,cair];
+];
+AppendTo[alltimings,{timeassembmass,"Timing Assemblierung Systemsmassenmatrix"}];
+
+whereami="Assemblierung Systemmatrix";
+timeassemball=AbsoluteTiming[
+sysmatfreq=syssteif-\[Omega]^2*sysmass+I*\[Omega]*impmat;
+];
+AppendTo[alltimings,{timeassemball,"Timing Assemblierung gesamte Systemmatrix"}];
+(* ======================================================================== *)
+
+(* ======================================================================== *)
+whereami="Initialsierung Dirichlet-RBs";
+atrb1=AbsoluteTiming[
+(* Randbedingungen erster Art *)
+(* Alle Knoten der Wände mit fester Einspannung *)
+Module[{boundaryacousticwall,boundarystrucfixed,lacou,boundaryacousticwalllv,lstruc,boundarystrucfixedlv},
+(* Alle Knoten für Einspannung der Wände *)
+(* Werte der Randbedingungen, Feste Einspannung alle Wandknoten in Strukturdomäne *)
+boundarystrucfixed=Round[boundarygwand[[1]]~Join~boundarygwand[[3]]];
+lstruc=Length[boundarystrucfixed];
+boundarystrucfixedlv=Transpose[{boundarystrucfixed}~Join~{Table[0.,lstruc]}];
+allnodeswodiri=Delete[Range[1,maxnodesys],Transpose[{boundarystrucfixedlv[[;;,1]]}]];
+boundarylv=boundarystrucfixedlv;
+];
+];
+AppendTo[alltimings,{atrb1,"Timing Initialsierung Dirichlet-RBs"}];
+(* ======================================================================== *)
+
+(* ======================================================================== *)
+whereami="Dirichlet RBs Reduktion Sysmat";
+atreduce=AbsoluteTiming[
+(* Reduzierung Systemmatrix *)
+Which[
+howtotreatdiri=="transform",
+lenboundarylv=Length[boundarylv];
+sysmatfreqred=sysmatfreq;
+replistfreq=Table[{boundarylv[[i,1]],boundarylv[[i,1]]},{i,lenboundarylv}];
+sysmatfreqred[[boundarylv[[;;,1]],;;]]=0;
+sysmatfreqred[[;;,boundarylv[[;;,1]]]]=0;
+sysmatfreqred+=SparseArray[replistfreq->Subtract[1,Extract[sysmatfreqred,replistfreq]],Dimensions[sysmatfreqred]]; (* https://mathematica.stackexchange.com/questions/164982/efficient-replacing-of-certain-diagonal-parts-of-array-matrix*)
+,
+howtotreatdiri=="delete",
+allnodes=allnodes[[allnodeswodiri]];
+maxnodesys=maxnodesys-Length[wand[[7]][[1]]]-Length[wand[[7]][[3]]];
+maxnodewand=maxnodewand-Length[wand[[7]][[1]]]-Length[wand[[7]][[3]]];
+sysmatfreqred=sysmatfreq[[allnodeswodiri,allnodeswodiri]];
+];
+];
+AppendTo[alltimings,{atreduce,"Timing Dirichlet RBs Reduktion Sysmat"}];
+(* ======================================================================== *)
+
+(* ======================================================================== *)
+(* Lastvektor *)
+whereami="Dirichlet RBs Modifizierung Lastvektor";
+atlv=AbsoluteTiming[
+Which[
+howtotreatdiri=="transform",
+lastvektor=lastvektor-sysmatfreq[[;;,boundarylv[[;;,1]]]].boundarylv[[;;,2]];
+Table[lastvektor[[boundarylv[[;;,1]]]]=boundarylv[[;;,2]],{i,1,Length@boundarylv}];
+,
+howtotreatdiri=="delete",
+lastvektor=lastvektor [[allnodeswodiri]]; 
+];
+];
+AppendTo[alltimings,{atlv,"Timing Dirichlet RBs Modifizierung Lastvektor"}];
+(* ======================================================================== *)
+
+(* ======================================================================== *)
+(* Lösung *)
+whereami="Lösung des GLS";
+atsol=AbsoluteTiming[
+maxmemusedls=MaxMemoryUsed[
+solution=LinearSolve[sysmatfreqred,lastvektor,Method->"Pardiso"];
+];
+solutionallnodes=Table[{allnodes[[i,1]],allnodes[[i,2]],solution[[i]]},{i,1,maxnodesys}];
+];
+AppendTo[alltimings,{atsol,"Timing Lösungszeit"}];
+(* ======================================================================== *)
+
+sysmatfreqh=sysmatfreq;
+sysmatfreqredh=sysmatfreqred;
+lastvektorh=lastvektor;
+
+(* ======================================================================== *)
+(* Berechnung des Schalldrucklevels (nur Innenknoten) *)
+whereami="Schalldrucklevel Knoten";
+atlp=AbsoluteTiming[
+allpl=solutionallnodes[[1;;maxnoderl,3]];
+allpr=solutionallnodes[[maxnoderl+maxnodewand+1;;maxnodesys,3]];
+(*
+spllv=Abs[20*Log10[(Sqrt[0.5*allpl*Conjugate[allpl]])/(20*10^-6)]];
+splrv=Abs[20*Log10[(Sqrt[0.5*allpr*Conjugate[allpr]])/(20*10^-6)]];
+*)
+
+spllv=Abs[20*Log10[allpl/(20*10^-6)]];
+splrv=Abs[20*Log10[allpr/(20*10^-6)]];
+splnvl=Transpose[Transpose[solutionallnodes[[1;;maxnoderl,1;;2]]]~Join~{spllv}];
+splnvr=Transpose[Transpose[solutionallnodes[[maxnoderl+maxnodewand+1;;maxnodesys,1;;2]]]~Join~{splrv}];
+splnodes={splnvl,splnvr};
+];
+AppendTo[alltimings,{atlp,"Timing Schalldrucklevel Knoten"}];
+(* ======================================================================== *)
+
+(* ======================================================================== *)
+(* Berechnung mittlerer Schalldruck für gesamten Raum *)
+whereami="Schalldrucklevel Integration";
+atavgspl=AbsoluteTiming[
+intmeanspll=0;
+intmeansplr=0;
+If[intspl==True,
+(* Mittelung über Integration *)
+intmeanspll=Mean[Table[avsplelementleft[i,spllv,nodemethod,m,rl],{i,1,elenxlinks*eleny}]];
+intmeansplr=Mean[Table[avsplelementright[i,splrv,nodemethod,m,rr],{i,1,elenxrechts*eleny}]];
+,Null]; (* Berechnung nur wenn globale Variable intspl auf True gesetzt ist *)
+];
+AppendTo[alltimings,{atavgspl,"Timing Schalldrucklevel Integration"}];
+meanspls={Mean@Re[spllv],Mean@Re[splrv],intmeanspll,intmeansplr}; (* {SPL links über Knoten,SPL rechts über Knoten,SPL links über Integration,SPL rechts über Integration}  *)
+(* ======================================================================== *)
+
+(* ======================================================================== *)
+whereami="Lösungsknoten zuordnen";
+timesonst=AbsoluteTiming[
+solutionlefth=solutionallnodes[[1;;maxnoderl]];
+solutionwandh=solutionallnodes[[maxnoderl+1;;maxnoderl+maxnodewand]];
+solutionrighth=solutionallnodes[[maxnoderl+maxnodewand+1;;maxnodesys]];
+wanddetailsetc={wand[[8]],{elesxlinks,elesy,elesxlinks/elesy},{elesxrechts,elesy,elesxrechts/elesy}};    
+];
+AppendTo[alltimings,{timesonst,"Timing weiteres"}];
+(* ======================================================================== *)
+
+(* ======================================================================== *)
+(* Konditionierung *)
+whereami="Kondition der Matrix";
+timekond=AbsoluteTiming[
+syskond=0;
+If[calcsyscondition==True,
+syskond=LinearAlgebra`MatrixConditionNumber[sysmatfreqred,Norm->1];
+,Null]; (* Berechnung nur wenn globale Variable calcsyscondition auf True gesetzt ist *)
+];
+AppendTo[alltimings,{timekond,"Timing Kondition der Matrix"}];
+(* ======================================================================== *)
+
+(* ======================================================================== *)
+(* Sabine-Anpassung aller SPL-Punkte *)
+alpha=alphaausimp[zirechts,cair,rohair];
+absorbraum=rxsizerr*2*alpha+rysize*alpha;
+swand=rysize;
+rsabineadjust=10*Log10[swand/absorbraum];
+splnvlsabadjusted=Transpose[{splnvl[[;;,1]],splnvl[[;;,2]],rsabineadjust+splnvl[[;;,3]]}];
+splnvrsabadjusted=Transpose[{splnvr[[;;,1]],splnvr[[;;,2]],rsabineadjust+splnvr[[;;,3]]}];
+splnodessabadjusted={splnvlsabadjusted,splnvrsabadjusted};
+(* ======================================================================== *)
+
+(* ======================================================================== *)
+(* 
+rl,                   (* [[1]] *)
+wand,                 (* [[2]] *)
+rr,                   (* [[3]] *)
+solutionallnodes,     (* [[4]] *)
+solutionlefth,        (* [[5]] *)
+solutionwandh,        (* [[6]] *)
+solutionrighth,       (* [[7]] *)
+syskond,              (* [[8]] *)
+alltimings,           (* [[9]] *)
+meanspls,             (* [[10]] *) 
+wanddetailsetc,       (* [[11]] *) 
+splnodes              (* [[12]] *)
+
+Zu [[10]]: {Mean@Re[spllv],Mean@Re[splrv],intmeanspll,intmeansplr} \[Rule] {SPL links über Knoten,SPL rechts über Knoten,SPL links über Integration,SPL rechts über Integration}
+Zu [[11]]: {wand[[8]],{elesxlinks,elesy,elesxlinks/elesy},{elesxrechts,elesy,elesxrechts/elesy}}   
+Zu [[12]]: {SPL links,SPL rechts} Knotenwerte                 
+
+ *)
+Return[{
+rl,                                        (* [[1]] *)
+wand,                                   (* [[2]] *)
+rr,                                        (* [[3]] *)
+solutionallnodes,        (* [[4]] *)
+solutionlefth,               (* [[5]] *)
+solutionwandh,               (* [[6]] *)
+solutionrighth,             (* [[7]] *)
+syskond,                             (* [[8]] *)
+alltimings,                      (* [[9]] *)
+meanspls,                          (* [[10]] *)
+ wanddetailsetc,            (* [[11]] *) 
+splnodes,                           (* [[12]] *)
+splnodessabadjusted      (* [[13]] *)
+}];
+(* ======================================================================== *)
+]
+(* ============================================== *)
+
+(* ============================================== *)
+(* Supplimentary functions *)
+matrixAssembly[ values_,pos_,dim_]:=Block[{matrix,p},
+System`SetSystemOptions[ "SparseArrayOptions"->{"TreatRepeatedEntries"->1}];
+matrix=SparseArray[ pos->Flatten[ values],dim];
+System`SetSystemOptions[ "SparseArrayOptions"->{"TreatRepeatedEntries"->0}];
+Return[ matrix]]
+
+(* Verwendeter Speicher *)
+Mem := {Round[MemoryInUse[]/1024.^2],Round[MaxMemoryUsed[]/1024.^2]}
+
+alphaausr[r_]:=1-r^2;
+
+alphaausimp[impedanz_,cair_,rohair_]:=
+Module[
+{z1,r,\[Alpha]},
+z1=cair*rohair;
+r=(impedanz-z1)/(impedanz+z1);
+\[Alpha]=1-r^2;
+Return[\[Alpha]]
+];
+
+(*
+calcfluidleft[m=Ordnung der Formunktionen,c=Schallgeschwindigkeit der Luft,method="lobatto" oder "equdist",elemnx=Anzahl der Elemente in x-Richtung,elemny=Anzahl der Elemente in y-Richtung,elemsx=Ausdehnung des Elements in globaler x-Richtung,elemsy=Ausdehnung des Elements in globaler y-Richtung],
+Ausgabe:Return[{syssteifarray,sysmassarray,zuordtab,allnodes}],
+syssteifarray=Systemsteifigkeitsmatrix,
+sysmassarray=Systemmassenmatrix,
+zuordtab=Zuordnungstabelle aller Elemente,
+allnodes=Alle Knotenkoordinaten des linken Raums,
+*)
+
+calcfluidleft[m_,c_,method_,integrationmethod_,elemnx_,elemny_,elemsx_,elemsy_]:=
+Module[{maxelement,nodesperelement,maxrx,maxry,k,nodesperx,nodespery,allnodes,maxnode,allelementsfirstnode,zuordtab,elementmat,i,j,elesteifmat,elemassmat,ielem,atktzt,atele,atass,syssteifarray,sysmassarray,allboundaries,boundaryu,boundaryr,boundaryo,boundaryl,posinz,allelementsteif,allelementmass},
+maxelement=elemnx*elemny;
+nodesperelement=(m+1)^2;
+
+(* Raumgröße in x- und y-Richtung *)
+maxrx=elemnx*elemsx;
+maxry=elemny*elemsy;
+
+atktzt=AbsoluteTiming[
+(* Erzeuge Knotentabelle *)
+nodesperx=elemnx*m+1;
+nodespery=elemny*m+1;
+Which[
+method=="equdist"||method=="bernstein",
+k=0;
+allnodes=Flatten[Table[k++;{i,j,k},{i,maxrx,0,-elemsx/m},{j,0,maxry,elemsy/m}],1];
+maxnode=Last[allnodes][[3]];
+,
+method=="lobatto",
+nodesinx=Table[i*elemsx-(lobattozeros[m]*elemsx),{i,elemnx,1,-1}];
+nodesinx=Flatten[Transpose[Drop[Transpose[nodesinx],-1]],1]~Join~{0};
+nodesiny=Table[i*elemsy+(lobattozeros[m]*elemsy),{i,0,elemny-1,1}];
+nodesiny={0}~Join~Flatten[Transpose[Drop[Transpose[nodesiny],1]],1];
+k=0;
+allnodes=Flatten[Table[k++;{nodesinx[[i]],nodesiny[[j]],k},{i,1,nodesperx},{j,1,nodespery}],1];
+maxnode=Last[allnodes][[3]];
+];
+
+(* Erzeuge Zuordnungstabelle *)
+Which[
+m>=2,allelementsfirstnode=Flatten@Table[Range[i,i+nodespery-m,m],{i,1,maxnode-m*nodespery-m,m*nodespery}],
+m==1,allelementsfirstnode=Flatten@Table[Range[i,i+nodespery-m-1,m],{i,1,maxnode-m*nodespery-m,m*nodespery}]
+];
+zuordtab=Table[Flatten@Table[Range[i,i+m],{i,allelementsfirstnode[[j]],allelementsfirstnode[[j]]+nodespery*m,nodespery}],{j,1,maxelement}];
+];
+
+(* Berechnung der Elementmatrix *)
+atele=AbsoluteTiming[
+elementmat=elementfluid[m,c,{{0,0},{elemsy,0},{0,elemsx},{elemsy,elemsx}},method,integrationmethod];
+elesteifmat=elementmat[[1]];
+elemassmat=elementmat[[2]];
+];
+
+elehhh=elementmat;
+
+allelementsteif=ToPackedArray[Table[elesteifmat,maxelement]];
+allelementmass=ToPackedArray[Table[elemassmat,maxelement]];
+posinz = Flatten[ Map[ Outer[ List,#,#]&,zuordtab],2];
+
+atasssa=AbsoluteTiming[
+syssteifarray=matrixAssembly[allelementsteif,posinz,maxnode];
+sysmassarray=matrixAssembly[allelementmass,posinz,maxnode];
+];
+
+(* Knoten der Ränder *)
+(*Rand unten*)
+boundaryu=Range[1,maxnode,nodespery];
+(*Rand rechts*)
+boundaryr=Range[1,nodespery];
+(*Rand oben *)
+boundaryo=Range[nodespery,maxnode,nodespery];
+(* Rand links *)
+boundaryl=Range[maxnode-nodespery+1,maxnode];
+allboundaries={boundaryu,boundaryr,boundaryo,boundaryl};
+
+Return[{syssteifarray,sysmassarray,zuordtab,allnodes,allboundaries}];
+];
+
+(*
+calcfluidright[m=Ordnung der Formunktionen,c=Schallgeschwindigkeit der Luft,method="lobatto" oder "equdist",elemnx=Anzahl der Elemente in x-Richtung,elemny=Anzahl der Elemente in y-Richtung,elemsx=Ausdehnung des Elements in globaler x-Richtung,elemsy=Ausdehnung des Elements in globaler y-Richtung dwand=Dicke der Wand (notwendig für Knotenkoordinaten)],
+Ausgabe:Return[{syssteifarray,sysmassarray,zuordtab,allnodes}],
+syssteifarray=Systemsteifigkeitsmatrix,
+sysmassarray=Systemmassenmatrix,
+zuordtab=Zuordnungstabelle aller Elemente,
+allnodes=Alle Knotenkoordinaten des rechten Raums,
+*)
+calcfluidright[m_,c_,method_,integrationmethod_,elemnx_,elemny_,elemsx_,elemsy_]:=
+Module[{maxelement,nodesperelement,maxrx,maxry,k,nodesperx,nodespery,maxnode,allelementsfirstnode,elementmat,i,j,elesteifmat,elemassmat,ielem,atktzt,atele,atass,syssteifarray,sysmassarray,xstart,allnodes,zuordtab,atasssa,boundaryu,boundaryr,boundaryo,boundaryl,allboundaries,allelementsteif,posinz,allelementmass},
+
+maxelement=elemnx*elemny;
+nodesperelement=(m+1)^2;
+
+(* Raumgröße in x- und y-Richtung *)
+maxrx=elemnx*elemsx;
+maxry=elemny*elemsy;
+
+atktzt=AbsoluteTiming[
+(* Erzeuge Knotentabelle *)
+nodesperx=elemnx*m+1;
+nodespery=elemny*m+1;
+Which[
+method=="equdist"||method=="bernstein",
+k=0;
+allnodes=Flatten[Table[k++;{i,j,k},{i,0,maxrx,elemsx/m},{j,0,maxry,elemsy/m}],1];
+maxnode=Last[allnodes][[3]];
+,
+method=="lobatto",
+nodesinx=Table[i*elemsx+(lobattozeros[m]*elemsx),{i,0,elemnx-1,1}];
+nodesinx=({0}~Join~Flatten[Transpose[Drop[Transpose[nodesinx],1]],1]);
+nodesiny=Table[i*elemsy+(lobattozeros[m]*elemsy),{i,0,elemny-1,1}];
+nodesiny={0}~Join~Flatten[Transpose[Drop[Transpose[nodesiny],1]],1];
+k=0;
+allnodes=Flatten[Table[k++;{nodesinx[[i]],nodesiny[[j]],k},{i,1,nodesperx},{j,1,nodespery}],1];
+maxnode=Last[allnodes][[3]];
+];
+
+(* Erzeuge Zuordnungstabelle *)
+Which[
+m>=2,allelementsfirstnode=Flatten@Table[Range[i,i+nodespery-m,m],{i,m+1,maxnode-m*nodespery-m,m*nodespery}],
+m==1,allelementsfirstnode=Flatten@Table[Range[i,i+nodespery-m-1,m],{i,m+1,maxnode-m*nodespery-m,m*nodespery}];
+];
+zuordtab=Table[Flatten@Table[Range[i,i-m,-1],{i,allelementsfirstnode[[j]],allelementsfirstnode[[j]]+nodespery*m,nodespery}],{j,1,maxelement}];
+];
+
+(* Berechnung der Elementmatrix *)
+atele=AbsoluteTiming[
+elementmat=elementfluid[m,c,{{0,0},{elemsy,0},{0,elemsx},{elemsy,elemsx}},method,integrationmethod];
+elesteifmat=elementmat[[1]];
+elemassmat=elementmat[[2]];
+];
+
+posinz = Flatten[ Map[ Outer[ List,#,#]&,zuordtab],2];
+allelementsteif=ToPackedArray[Table[elesteifmat,maxelement]];
+allelementmass=ToPackedArray[Table[elemassmat,maxelement]];
+
+atasssa=AbsoluteTiming[
+syssteifarray=matrixAssembly[allelementsteif,posinz,maxnode];
+sysmassarray=matrixAssembly[allelementmass,posinz,maxnode];
+];
+
+(* Knoten der Ränder *)
+(*Rand unten*)
+boundaryu=Range[1,maxnode,nodespery];
+(*Rand rechts*)
+boundaryl=Range[1,nodespery];
+(*Rand oben *)
+boundaryo=Range[nodespery,maxnode,nodespery];
+(* Rand links *)
+boundaryr=Range[maxnode-nodespery+1,maxnode];
+allboundaries={boundaryu,boundaryr,boundaryo,boundaryl};
+
+Return[{syssteifarray,sysmassarray,zuordtab,allnodes,allboundaries}];
+];
+
+calcwallsysmat[m_,dimlayers_,emodul_,roh_,mu_,svzustand_,nodemethod_,integrationmethod_,eleny_,elesy_,elesx_]:=
+Module[
+{
+timinglayers,emodulneu,rohneu,muneu,
+nrofdimlayersneu,layerelements,timingelechoice,timingcalcnodes,knodei,
+mk,mg,ilayer,xposlistelement,yposlistelement,allnodesreihe,
+layerwidth,elemnodes,allnodesvorher,
+timingcalczuord,kh,ynodeslayer,firstandlastnodeperlayer,kelem,xnodesthislayer,ynodesthislayer,
+xnodeslayer1,ynodeslayer1,firstnodeyrow,firstynodessecondlayer,inzlayer2,inzotherlayers,
+xnodeslastlayer,ynodeslastlayer,lastnodelastlayer,firstnodesthislayer,inzlayer1,
+dimlayersneu,allnodes,alltimings,inztab,
+timerandknoten,xlinkekante,xrechtekante,yunterekante,yoberekante,boundaryu,boundaryo,boundaryl,boundaryr,allboundaries,
+syssteifarray,sysmassarray,inztabuv,allnodesuv,layersdata,elementlayer,timingelementcalc,elesteifmat,elemassmat,maxnode
+},
+
+(* globale Variablen, bzw. Variablen die durch Funktion übergeben werden *)
+(*
+m,dimlayers,emodul,roh,mu,nodemethod,integrationmethod,eleny,elesy,elesx
+*)
+
+alltimings={};
+(* ==================================================================================================== *)
+(* ========================================== Berechne Layer ========================================== *)
+(* ==================================================================================================== *)
+timinglayers=AbsoluteTiming[
+(* ==================================================== *)
+(* Abfrage ob die einzelnen Layer größer sind als die x-Ausdehnung in Luft (elesx), falls ja weitere Unterteilung der Layer \[Rule] neue Ausgabe dimlayersneu, emodulneu, rohneu, muneu *)
+Module[{maxelementsize,nroflayers,widthlayer,unterteilungenlayer,dimlayersh,emodulh,rohh,muh,i},
+maxelementsize=elesx;
+nroflayers=Length[dimlayers];
+dimlayersneu={};
+emodulneu={};
+rohneu={};
+muneu={};
+For[i=1,i<=nroflayers,i++,
+widthlayer=dimlayers[[i]];
+unterteilungenlayer=IntegerPart[dimlayers[[i]]/maxelementsize];
+
+If[unterteilungenlayer>0,
+dimlayersh=Table[dimlayers[[i]]/(unterteilungenlayer+1),unterteilungenlayer+1];
+emodulh=Table[emodul[[i]],unterteilungenlayer+1];
+rohh=Table[roh[[i]],unterteilungenlayer+1];
+muh=Table[mu[[i]],unterteilungenlayer+1];
+,
+dimlayersh=dimlayers[[i]];
+emodulh=emodul[[i]];
+rohh=roh[[i]];
+muh=mu[[i]];
+];
+
+AppendTo[dimlayersneu,dimlayersh];
+AppendTo[emodulneu,emodulh];
+AppendTo[rohneu,rohh];
+AppendTo[muneu,muh];
+];
+
+dimlayersneu=Flatten[dimlayersneu];
+emodulneu=Flatten[emodulneu];
+rohneu=Flatten[rohneu];
+muneu=Flatten[muneu];
+layersdata={dimlayersneu,emodulneu,rohneu,muneu};
+];
+(* ==================================================== *)
+];
+AppendTo[alltimings,{timinglayers[[1]],"Timing Layersunterteilung"}];
+
+nrofdimlayersneu=Length[dimlayersneu]; (* Anzahl layers nach Anpassung *)
+layerelements=Table[0,nrofdimlayersneu]; (* Elementordnung für jeden Layer (m-Elemente oder mkxmg-Elemente) *)
+
+timingelechoice=AbsoluteTiming[
+(* ==================================================== *)
+(* Auswahl der Elemente (also m-Elemente oder mkxmg-Elemente für die einzelnen Layer *)
+(* Falls das y/x-Verhältnis der Elementseitenlängen größer als 4 ist, kommen die mkxmg-Elemente zum Einsatz *)
+Module[{i,elementwidth,elementheight,elementaspect},
+For[i=1,i<=nrofdimlayersneu,i++,
+elementwidth=dimlayersneu[[i]];
+elementheight=elesy;
+elementaspect=elementheight/elementwidth;
+(* Print["Element x:",elementwidth,"   Element y:",elementheight,"   Aspectratio:",elementaspect]; *)
+Which[
+m<4||nodemethod!="lobatto",
+layerelements[[i]]=m,
+m==4,
+   Which[
+elementaspect<4||usemkxmgelements==False,
+layerelements[[i]]=m,
+elementaspect>=4,
+layerelements[[i]]="2x4"
+];
+,
+m==6,
+   Which[
+elementaspect<4||usemkxmgelements==False,
+layerelements[[i]]=m,
+elementaspect>=4,
+layerelements[[i]]="3x6"
+];
+,
+m==8,
+   Which[
+elementaspect<4||usemkxmgelements==False,
+layerelements[[i]]=m,
+elementaspect>=4,
+layerelements[[i]]="4x8"
+];
+,
+m==10,
+   Which[
+elementaspect<4||usemkxmgelements==False,
+layerelements[[i]]=m,
+elementaspect>=4,
+layerelements[[i]]="5x10"
+];
+];
+];
+];
+(* ==================================================== *)
+AppendTo[layersdata,{layerelements}];
+];
+AppendTo[alltimings,{timingelechoice[[1]],"Timing Elementauswahl"}];
+(* ==================================================================================================== *)
+(* ==================================================================================================== *)
+(* ==================================================================================================== *)
+
+
+
+(* ==================================================================================================== *)
+(* ========================================\[Equal] Berechne Knoten ============================================ *)
+(* ==================================================================================================== *)
+timingcalcnodes=AbsoluteTiming[
+(* ==================================================== *)
+Which[
+(* ===============\[Equal]===== equdist ======================= *)
+nodemethod=="equdist"||nodemethod=="bernstein",
+(* Print["Nodemethod=equdist/bernstein"]; *)
+allnodes={};
+knodei=0;
+For[ilayer=1,ilayer<=nrofdimlayersneu,ilayer++,
+layerwidth=dimlayersneu[[ilayer]];
+mk=m;
+mg=m;
+If[ilayer==1,
+(* ---------- ilayer=1 ---------- *)
+(* Print["Layer 1!"," Layerwidth=",layerwidth]; *)
+xposlistelement=Subdivide[layerwidth,m];
+yposlistelement=Subdivide[elesy,m];
+	allnodesreihe=Table[
+		If[ielemy==1,
+                     (* ------- ielem=1 y-Richtung ------- *)
+		   elemnodes=Flatten[Table[knodei++;{xpos,ypos,knodei},{ypos,yposlistelement},{xpos,xposlistelement}],1];
+                     (* ------- ielem=1 y-Richtung ------- *)
+		   ,
+                     (* ------- ielem\[GreaterEqual]2 y-Richtung ------- *)
+		   elemnodes=Flatten[Table[knodei++;{xpos,yposlistelement[[ypos]]+(ielemy-1)*elesy,knodei},{ypos,2,Length[yposlistelement]},{xpos,xposlistelement}],1];
+                     (* ------- ielem\[GreaterEqual]2 y-Richtung ------- *)
+	         ];
+	        elemnodes,{ielemy,1,eleny}];
+(* ---------- ilayer=1 ---------- *)
+,
+(* ---------- ilayer\[GreaterEqual]2 ---------- *)
+(* Print["Layer ",ilayer," Layerwidth=",layerwidth]; *)
+xposlistelement=Subdivide[layerwidth,m];
+yposlistelement=Subdivide[elesy,m];
+	allnodesreihe=Table[
+		If[ielemy==1,
+                     (* ------- ielem=1 y-Richtung ------- *)
+		   elemnodes=Flatten[Table[knodei++;{xposlistelement[[xpos]]+Total[dimlayersneu[[1;;ilayer-1]]],ypos,knodei},{ypos,yposlistelement},{xpos,2,Length[xposlistelement]}],1];
+                     (* ------- ielem=1 y-Richtung ------- *)
+		   ,
+                     (* ------- ielem\[GreaterEqual]2 y-Richtung ------- *)
+		   elemnodes=Flatten[Table[knodei++;{xposlistelement[[xpos]]+Total[dimlayersneu[[1;;ilayer-1]]],yposlistelement[[ypos]]+(ielemy-1)*elesy,knodei},{ypos,2,Length[yposlistelement]},{xpos,2,Length[xposlistelement]}],1];
+                     (* ------- ielem\[GreaterEqual]2 y-Richtung ------- *)
+	         ];
+	         elemnodes,{ielemy,1,eleny}];
+(* ---------- ilayer\[GreaterEqual]2 ---------- *)
+];
+AppendTo[allnodes,allnodesreihe];
+];
+(* ===============\[Equal]===== equdist ======================= *)
+,
+(* ===============\[Equal]===== lobatto ======================= *)
+nodemethod=="lobatto",
+(* Print["Nodemethod=lobatto"]; *)
+allnodes={};
+knodei=0;
+For[ilayer=1,ilayer<=nrofdimlayersneu,ilayer++,
+layerwidth=dimlayersneu[[ilayer]];
+mk=layerelements[[ilayer]];
+mg=layerelements[[ilayer]];
+(* ------ Auswahl der Elemente ------ *)
+Which[
+         layerelements[[ilayer]]=="2x4",
+	(* Print["Element 2x4"]; *)
+	mk=2;
+	mg=4;
+         ,
+	layerelements[[ilayer]]=="3x6",
+	(* Print["Element 3x6"]; *)
+	mk=3;
+	mg=6;
+	,
+	layerelements[[ilayer]]=="4x8",
+	(* Print["Element 4x8"]; *)
+	mk=4;
+	mg=8;
+	,
+	layerelements[[ilayer]]=="5x10",
+	(* Print["Element 5x10"]; *)
+	mk=5;
+	mg=10;
+];
+(* ------ Auswahl der Elemente ------ *)
+(* Print["Layer=",ilayer,"   mk=",mk,"   mg=",mg]; *)
+If[ilayer==1,
+(* ---------- ilayer=1 ---------- *)
+(*Print["Layer 1!"," Layerwidth=",layerwidth];*)
+xposlistelement=layerwidth*lobattozeros[mk];
+yposlistelement=elesy*lobattozeros[mg];
+	allnodesreihe=Table[
+		If[ielemy==1,
+                     (* ------- ielem=1 y-Richtung ------- *)
+		   elemnodes=Flatten[Table[knodei++;{xpos,ypos,knodei},{ypos,yposlistelement},{xpos,xposlistelement}],1];
+                     (* ------- ielem=1 y-Richtung ------- *)
+		   ,
+                     (* ------- ielem\[GreaterEqual]2 y-Richtung ------- *)
+		   elemnodes=Flatten[Table[knodei++;{xpos,yposlistelement[[ypos]]+(ielemy-1)*elesy,knodei},{ypos,2,Length[yposlistelement]},{xpos,xposlistelement}],1];
+                     (* ------- ielem\[GreaterEqual]2 y-Richtung ------- *)
+	         ];
+	        elemnodes,{ielemy,1,eleny}];
+(* ---------- ilayer=1 ---------- *)
+,
+(* ---------- ilayer\[GreaterEqual]2 ---------- *)
+(*Print["Layer ",ilayer," Layerwidth=",layerwidth];*)
+xposlistelement=layerwidth*lobattozeros[mk];
+yposlistelement=elesy*lobattozeros[mg];
+	allnodesreihe=Table[
+		If[ielemy==1,
+                     (* ------- ielem=1 y-Richtung ------- *)
+		   elemnodes=Flatten[Table[knodei++;{xposlistelement[[xpos]]+Total[dimlayersneu[[1;;ilayer-1]]],ypos,knodei},{ypos,yposlistelement},{xpos,2,Length[xposlistelement]}],1];
+                     (* ------- ielem=1 y-Richtung ------- *)
+		   ,
+                     (* ------- ielem\[GreaterEqual]2 y-Richtung ------- *)
+		   elemnodes=Flatten[Table[knodei++;{xposlistelement[[xpos]]+Total[dimlayersneu[[1;;ilayer-1]]],yposlistelement[[ypos]]+(ielemy-1)*elesy,knodei},{ypos,2,Length[yposlistelement]},{xpos,2,Length[xposlistelement]}],1];
+                     (* ------- ielem\[GreaterEqual]2 y-Richtung ------- *)
+	         ];
+	        elemnodes,{ielemy,1,eleny}];
+(* ---------- ilayer\[GreaterEqual]2 ---------- *)
+];
+AppendTo[allnodes,allnodesreihe];
+];
+(* ===============\[Equal]===== lobatto ======================= *)
+];
+
+allnodesvorher=allnodes;
+allnodes=Flatten[allnodes,2];
+maxnode=Length[allnodes];
+allnodesuv=Flatten[Table[{{allnodes[[i,1]],allnodes[[i,2]],allnodes[[i,3]]*2-1},{allnodes[[i,1]],allnodes[[i,2]],allnodes[[i,3]]*2}},{i,1,maxnode}],1]; (* TODO *)
+(* ==================================================== *)
+];
+AppendTo[alltimings,{timingcalcnodes[[1]],"Timing Berechne Knoten"}];
+(* ==================================================================================================== *)
+(* ==================================================================================================== *)
+(* ==================================================================================================== *)
+
+
+
+(* ==================================================================================================== *)
+(* ==================================== Berechne Zuordnungstabelle ======================================== *)
+(* ==================================================================================================== *)
+timingcalczuord=AbsoluteTiming[
+(* Anzahl der Knoten in x-Richtung für jeden Layer *)
+xnodeslayer=Table[
+kh=layerelements[[i]];
+Which[
+layerelements[[i]]=="2x4",
+kh=2
+,
+layerelements[[i]]=="3x6",
+kh=3
+,
+layerelements[[i]]=="4x8",
+kh=4
+,
+layerelements[[i]]=="5x10",
+kh=5
+];
+kh
+,{i,1,Length[layerelements]}];
+ynodeslayer=Table[
+kh=layerelements[[i]];
+Which[
+layerelements[[i]]=="2x4",
+kh=4
+,
+layerelements[[i]]=="3x6",
+kh=6
+,
+layerelements[[i]]=="4x8",
+kh=8
+,
+layerelements[[i]]=="5x10",
+kh=10
+];
+kh
+,{i,1,Length[layerelements]}];
+
+
+(* Erster und letzter globale Knoten des jeweiligen Layers *)
+firstandlastnodeperlayer={};
+AppendTo[firstandlastnodeperlayer,{allnodesvorher[[1,1,1,3]],Last[Last[allnodesvorher[[1]]]][[3]]}]; (* Erster layer *)
+If[Length[layerelements]>=2,
+AppendTo[firstandlastnodeperlayer,{First[allnodesvorher[[1]]][[xnodeslayer[[1]]+1]][[3]],Last[Last[allnodesvorher[[2]]]][[3]]}] ;(* Zweiter layer *)
+,Null];
+If[Length[layerelements]>=3
+For[i=3,i<=nrofdimlayersneu,i++,
+AppendTo[firstandlastnodeperlayer,{First[allnodesvorher[[i-1]]][[xnodeslayer[[i-1]]]][[3]],Last[Last[allnodesvorher[[i]]]][[3]]}]
+];
+,Null];
+
+
+kelem=0;
+inztab={};
+(* ---------- Erster layer ---------- *)
+xnodesthislayer=xnodeslayer[[1]]+1;
+ynodesthislayer=ynodeslayer[[1]]+1;
+(*Print["Layer:",1," mit mk=",xnodesthislayer-1," und mg=",ynodesthislayer-1];*)
+Table[
+kelem++;
+(*Print["Element:",kelem];*)
+inzlayer1=Partition[Range[firstandlastnodeperlayer[[1,2]]],xnodesthislayer*ynodesthislayer,xnodesthislayer*ynodesthislayer-xnodesthislayer];
+
+
+,{ielem,1,eleny}];
+(* ---------- Erster layer ---------- *)
+
+(* --------- Zweiter layer ---------- *)
+If[Length[layerelements]>=2,
+xnodesthislayer=xnodeslayer[[2]];
+ynodesthislayer=ynodeslayer[[2]]+1;
+xnodeslayer1=xnodeslayer[[1]]+1;
+ynodeslayer1=ynodeslayer[[1]]+1;
+firstnodeyrow=Partition[Range[xnodeslayer1,firstandlastnodeperlayer[[1,2]],xnodeslayer1],ynodeslayer1,ynodeslayer1-1];
+firstynodessecondlayer=Partition[Table[firstandlastnodeperlayer[[1,2]]+1+i*xnodesthislayer,{i,0,eleny*ynodeslayer[[2]]}],ynodeslayer1,ynodeslayer1-1];
+(*Print["Layer:",2," mit mk=",xnodesthislayer," und mg=",ynodesthislayer-1];*)
+inzlayer2=Table[
+kelem++;
+(*Print["Element:",kelem];*)
+Flatten@Table[{firstnodeyrow[[ielem]][[i]]}~Join~Range[firstynodessecondlayer[[ielem]][[i]],firstynodessecondlayer[[ielem]][[i]]+xnodesthislayer-1],{i,1,ynodesthislayer}]
+,{ielem,1,eleny}];
+,Null];
+(* --------- Zweiter layer ---------- *)
+
+(* ---- Dritter bis letzter layer ----- *)
+If[Length[layerelements]>=3,
+inzotherlayers=Flatten[Table[
+xnodesthislayer=xnodeslayer[[ilayer]]+1;
+xnodeslastlayer=xnodeslayer[[ilayer-1]];
+ynodesthislayer=ynodeslayer[[ilayer]]+1;
+ynodeslastlayer=ynodeslayer[[ilayer-1]];
+(* Print["xnodesthislayer:",xnodesthislayer,"   xnodesthislayer:",ynodesthislayer]; *)
+lastnodelastlayer=firstandlastnodeperlayer[[ilayer-1,2]];
+firstnodesthislayer=firstandlastnodeperlayer[[ilayer,1]];
+(*Print[lastnodelastlayer];*)
+Table[
+kelem++;
+(*Print["Element:",kelem];*)
+Flatten[Table[{(firstnodesthislayer+i*xnodeslastlayer)+(ielem-1)*(xnodeslastlayer*ynodeslastlayer)}~Join~(Range[lastnodelastlayer+1,lastnodelastlayer+xnodesthislayer-1]+i*(xnodesthislayer-1)+(ielem-1)*((xnodesthislayer-1)*(ynodesthislayer-1))),{i,0,ynodesthislayer-1}]]
+,{ielem,1,eleny}]
+,{ilayer,3,Length[layerelements]}],1];
+,Null];
+(* ---- Dritter bis letzter layer ----- *)
+Which[
+Length[layerelements]==1,
+inztab=inzlayer1;
+Length[layerelements]==2,
+inztab=inzlayer1~Join~inzlayer2;
+Length[layerelements]>=3,
+inztab=inzlayer1~Join~inzlayer2~Join~inzotherlayers;
+];
+
+(* ========== Inzidenztabelle in u- und v-Richtung =========== *)
+Module[{maxelement,lengthelement},
+maxelement=Length[inztab];
+inztabuv=Table[
+lengthelement=Length[inztab[[ielem]]];
+Flatten@Table[{inztab[[ielem,i]]*2-1,inztab[[ielem,i]]*2},{i,1,lengthelement}]
+,{ielem,1,maxelement}];
+];
+(* =========================================================== *)
+
+];
+AppendTo[alltimings,{timingcalczuord[[1]],"Timing Berechne Zuordnungstabelle"}];
+(* ==================================================================================================== *)
+(* ==================================================================================================== *)
+(* ==================================================================================================== *)
+
+
+
+(* ==================================================================================================== *)
+(* ==================================================================================================== *)
+(* ==================================================================================================== *)
+(* Randknoten *)
+timerandknoten=AbsoluteTiming[
+xlinkekante=0.;
+xrechtekante=Total[dimlayers];
+yunterekante=0.;
+yoberekante=eleny*elesy;
+
+boundaryu=N@Flatten[Position[allnodesuv[[;;,2]],_?(#==yunterekante&)]];
+boundaryo=N@Flatten[Position[allnodesuv[[;;,2]],_?(#==yoberekante&)]];
+boundaryl=N@Flatten[Position[allnodesuv[[;;,1]],_?(#==xlinkekante&)]];
+boundaryr=N@Flatten[Position[allnodesuv[[;;,1]],_?(#==xrechtekante&)]];
+allboundaries={boundaryu,boundaryr,boundaryo,boundaryl};
+];
+AppendTo[alltimings,{timerandknoten[[1]],"Timing Berechne Randknoten"}];
+(* ==================================================================================================== *)
+(* ==================================================================================================== *)
+(* ==================================================================================================== *)
+
+
+
+(* ==================================================================================================== *)
+(* ===================================== Berechne Elementmatrizen ===================================== *)
+(* ==================================================================================================== *)
+timingelementcalc=AbsoluteTiming[
+(* Elementmatrizen berechnen und zuordnen zu den jeweiligen Schichten *)
+Module[{elementordnung,maxelement},
+kelem=0;
+maxelement=Length[inztab];
+For[ilayer=1,ilayer<=Length[layerelements],ilayer++,
+Which[
+MemberQ[Range[1,20],layerelements[[ilayer]]]==True,
+elementordnung=layerelements[[ilayer]];
+(* Print["Layer ",ilayer,"  hat Ordnung ",elementordnung]; *)
+elementlayer[ilayer]=elementkont[m,emodulneu[[ilayer]],rohneu[[ilayer]],muneu[[ilayer]],svzustand,{{0,0},{dimlayersneu[[ilayer]],0},{0,elesy},{dimlayersneu[[ilayer]],elesy}},nodemethod,integrationmethod];
+,
+layerelements[[ilayer]]=="2x4",
+(* Print["Layer ",ilayer,"  hat Ordnung 2x4"]; *)
+elementlayer[ilayer]=elementkont2x4[emodulneu[[ilayer]],rohneu[[ilayer]],muneu[[ilayer]],svzustand,{{0,0},{dimlayersneu[[ilayer]],0},{0,elesy},{dimlayersneu[[ilayer]],elesy}}];
+,
+layerelements[[ilayer]]=="3x6",
+(* Print["Layer ",ilayer,"  hat Ordnung 3x6"]; *)
+elementlayer[ilayer]=elementkont3x6[emodulneu[[ilayer]],rohneu[[ilayer]],muneu[[ilayer]],svzustand,{{0,0},{dimlayersneu[[ilayer]],0},{0,elesy},{dimlayersneu[[ilayer]],elesy}}];
+,
+layerelements[[ilayer]]=="4x8",
+(* Print["Layer ",ilayer,"  hat Ordnung 4x8"]; *)
+elementlayer[ilayer]=elementkont4x8[emodulneu[[ilayer]],rohneu[[ilayer]],muneu[[ilayer]],svzustand,{{0,0},{dimlayersneu[[ilayer]],0},{0,elesy},{dimlayersneu[[ilayer]],elesy}}];
+,
+layerelements[[ilayer]]=="5x10",
+(* Print["Layer ",ilayer,"  hat Ordnung 5x10"]; *)
+elementlayer[ilayer]=elementkont5x10[emodulneu[[ilayer]],rohneu[[ilayer]],muneu[[ilayer]],svzustand,{{0,0},{dimlayersneu[[ilayer]],0},{0,elesy},{dimlayersneu[[ilayer]],elesy}}];
+];
+Table[kelem++;elementmat[kelem]=elementlayer[ilayer],eleny];
+];
+Table[elesteifmat[ielem]=elementmat[ielem][[1]],{ielem,1,maxelement}];
+Table[elemassmat[ielem]=elementmat[ielem][[2]],{ielem,1,maxelement}];
+];
+];
+AppendTo[alltimings,{timingelementcalc[[1]],"Timing Berechne Elementmatrizen"}];
+(* ==================================================================================================== *)
+(* ==================================================================================================== *)
+(* ==================================================================================================== *)
+
+
+
+(* ==================================================================================================== *)
+(* ===================================== Assembliere Systemmatrizen ===================================== *)
+(* ==================================================================================================== *)
+timeassembly=AbsoluteTiming[
+Module[
+{posinz,allelementsteif,allelementmass,maxelement,maxnodeuv},
+maxelement=Length[inztab];
+maxnodeuv=Length[allnodesuv];
+posinz = Flatten[ Map[ Outer[ List,#,#]&,inztabuv],2];
+allelementsteif=ToPackedArray[Table[elesteifmat[ielem],{ielem,1,maxelement}]];
+allelementmass=ToPackedArray[Table[elemassmat[ielem],{ielem,1,maxelement}]];
+
+syssteifarray=matrixAssembly[allelementsteif,posinz,maxnodeuv];
+sysmassarray=matrixAssembly[allelementmass,posinz,maxnodeuv];
+]
+];
+AppendTo[alltimings,{timeassembly[[1]],"Timing Assembliere Systemmatrizen"}];
+(* ==================================================================================================== *)
+(* ==================================================================================================== *)
+(* ==================================================================================================== *)
+
+
+
+
+(* Variablentausch zum Testen *)
+(* DELETE ME *)
+
+layerelementstesthhh=layerelements;
+dimlayersneutesthhh=dimlayersneu;
+allnodestesthhh=allnodes;
+alltimingstesthhh=alltimings;
+inztabtesthhh=inztab;
+inztabuvtesthhh=inztabuv;
+allboundariestesthhh=allboundaries;
+(* DELETE ME *)
+
+Return[{
+syssteifarray,           (* [[1]] *)
+sysmassarray,             (* [[2]] *)
+inztab,                          (* [[3]] *)
+inztabuv,                     (* [[4]] *)
+allnodes,                     (* [[5]] *)
+allnodesuv,                (* [[6]] *)
+allboundaries,         (* [[7]] *)
+layersdata                    (* [[8]] *)
+}];
+];
+
+
+
+(* ====================================================== *)
+(* Elementmatrizen und Lastvektoranteile für Neumann und Robin Randbedingung *)
+randelementerb2[length_,randknoten_,neumannwert_,m_,method_]:=
+Module[{intnodes,intweights,rem,lastvek,matk},
+
+intnodes=numintgld1[m][[1]];
+intweights=numintgld1[m][[2]];
+Which[
+method=="equdist",
+rem=neumannwert*length*Table[Sum[\[Phi]lequdist[m,i][intnodes[[j]]]*intweights[[j]],{j,1,m+1}],{i,1,m+1}];
+matk=neumannwert*length*Sum[Table[\[Phi]lequdist[m,i][intnodes[[j]]]\[Phi]lequdist[m,ii][intnodes[[j]]]*intweights[[j]],{i,1,m+1},{ii,1,m+1}],{j,1,m+1}];
+lastvek=Transpose[{randknoten}~Join~{rem}];
+Return[{lastvek,matk}],
+
+method=="bernstein",
+rem=neumannwert*length*Table[Sum[\[Phi]lbernstein[m,i][intnodes[[j]]]*intweights[[j]],{j,1,m+1}],{i,1,m+1}];
+matk=neumannwert*length*Sum[Table[\[Phi]lbernstein[m,i][intnodes[[j]]]\[Phi]lbernstein[m,ii][intnodes[[j]]]*intweights[[j]],{i,1,m+1},{ii,1,m+1}],{j,1,m+1}];
+lastvek=Transpose[{randknoten}~Join~{rem}];
+Return[{lastvek,matk}],
+
+method=="lobatto",
+rem=neumannwert*length*Table[Sum[\[Phi]llobatto[m,i][intnodes[[j]]]*intweights[[j]],{j,1,m+1}],{i,1,m+1}];
+matk=neumannwert*length*Sum[Table[\[Phi]llobatto[m,i][intnodes[[j]]]\[Phi]llobatto[m,ii][intnodes[[j]]]*intweights[[j]],{i,1,m+1},{ii,1,m+1}],{j,1,m+1}];
+lastvek=Transpose[{randknoten}~Join~{rem}];
+Return[{lastvek,matk}]
+];
+
+];
+(* ====================================================== *)
+
+(* ====================================================== *)
+(* Kopplungsmatrix *)
+koppmat[m_,method_,elesy_]:=Module[{he,intnodes,intweights},
+
+intnodes=numintgld1[m][[1]];
+intweights=numintgld1[m][[2]];
+Which[
+method=="equdist",
+he=elesy*Sum[((Transpose[{Flatten@Table[{\[Phi]lequdist[m,i][intnodes[[j]]],0},{i,1,m+1}]}]).{Table[\[Phi]lequdist[m,i][intnodes[[j]]],{i,1,m+1}]})*intweights[[j]],{j,1,m+1}];
+Return[he],
+
+method=="bernstein",
+he=elesy*Sum[((Transpose[{Flatten@Table[{\[Phi]lbernstein[m,i][intnodes[[j]]],0},{i,1,m+1}]}]).{Table[\[Phi]lbernstein[m,i][intnodes[[j]]],{i,1,m+1}]})*intweights[[j]],{j,1,m+1}];
+Return[he],
+
+method=="lobatto",
+he=elesy*Sum[((Transpose[{Flatten@Table[{\[Phi]llobatto[m,i][intnodes[[j]]],0},{i,1,m+1}]}]).{Table[\[Phi]llobatto[m,i][intnodes[[j]]],{i,1,m+1}]})*intweights[[j]],{j,1,m+1}];
+Return[he];
+];
+];
+(* ====================================================== *)
+(* ====================================================== *)
+(* Fluid *)
+elementfluid[m_,c_,allnodes_,method_,integrationmethod_]:=
+Module[{allnodesx,allnodesy,intnodes,intweights,\[Xi]1,\[Xi]2,elesteifmat,elemassenmat,x1,x2,x3,x4,y1,y2,y3,y4,intnodeslob,intweightslob,diaglob},
+
+allnodesx=allnodes[[;;,1]];
+allnodesy=allnodes[[;;,2]];
+
+x1=allnodesx[[1]];
+x2=allnodesx[[2]];
+x3=allnodesx[[3]];
+x4=allnodesx[[4]];
+
+y1=allnodesy[[1]];
+y2=allnodesy[[2]];
+y3=allnodesy[[3]];
+y4=allnodesy[[4]];
+
+intnodes=numintgld2[m][[1]];
+intweights=numintgld2[m][[2]];
+
+intnodeslob=numintgld2lobatto[m][[1]]; (* Integrationsmethode Lobatto für Lobattoverteilung und Massenmatrix *)
+intweightslob=numintgld2lobatto[m][[2]];
+
+(* TODO: Warnung über schlechte Element-Form einfügen *)
+(* Table[If[jacdetc[intnodes[[i,1]],intnodes[[i,2]],x1,x2,x3,x4,y1,y2,y3,y4]>10*$MachineEpsilon,Print["Warnung: Jacobi-Determinante größer/gleich Null!"],Null],{i,1,{m+1}^2}];
+*)
+
+Which[method=="lobatto",
+(* ===\[Equal] Berechnung Elementsteifigkeitsmatrix LOBATTO ===\[Equal] *)
+elesteifmat=Sum[((gradmatlobatto[m][intnodes[[i,1]],intnodes[[i,2]],x1,x2,x3,x4,y1,y2,y3,y4]).(Transpose[gradmatlobatto[m][intnodes[[i,1]],intnodes[[i,2]],x1,x2,x3,x4,y1,y2,y3,y4]]))*jacdetc[intnodes[[i,1]],intnodes[[i,2]],x1,x2,x3,x4,y1,y2,y3,y4]*intweights[[i]],{i,1,(m+1)^2}];
+(* ===\[Equal] Ende Berechnung Elementsteifigkeitsmatrix LOBATTO ===\[Equal] *)
+
+(* ===\[Equal] Berechnung Elementmassenmatrix LOBATTO ===\[Equal] *)
+(* Auswahl Integrationsmethode um exakt diagonale Massenmatrix zu bekommen *)
+Which[
+integrationmethod=="gl",
+elemassenmat=Sum[(Transpose@{Table[\[Phi]qlobatto[m,j][intnodes[[i,1]],intnodes[[i,2]]],{j,1,(m+1)^2}]}.{Table[\[Phi]qlobatto[m,j][intnodes[[i,1]],intnodes[[i,2]]],{j,1,(m+1)^2}]})*jacdetc[intnodes[[i,1]],intnodes[[i,2]],x1,x2,x3,x4,y1,y2,y3,y4]*intweights[[i]],{i,1,(m+1)^2}];
+,
+integrationmethod=="lob",
+elemassenmat=Sum[(Transpose@{Table[\[Phi]qlobatto[m,j][intnodeslob[[i,1]],intnodeslob[[i,2]]],{j,1,(m+1)^2}]}.{Table[\[Phi]qlobatto[m,j][intnodeslob[[i,1]],intnodeslob[[i,2]]],{j,1,(m+1)^2}]})*jacdetc[intnodeslob[[i,1]],intnodeslob[[i,2]],x1,x2,x3,x4,y1,y2,y3,y4]*intweightslob[[i]],{i,1,(m+1)^2}];
+diaglob=Diagonal[elemassenmat];
+elemassenmat=Table[0,(m+1)^2,(m+1)^2];
+Table[elemassenmat[[i,i]]=diaglob[[i]],{i,Length[diaglob]}];
+];
+(* ===\[Equal] Ende Berechnung Elementmassenmatrix LOBATTO ===\[Equal] *)
+
+,
+
+method=="equdist",
+(* ===\[Equal] Berechnung Elementsteifigkeitsmatrix EQUDIST ===\[Equal] *)
+elesteifmat=Sum[((gradmatequdist[m][intnodes[[i,1]],intnodes[[i,2]],x1,x2,x3,x4,y1,y2,y3,y4]).(Transpose[gradmatequdist[m][intnodes[[i,1]],intnodes[[i,2]],x1,x2,x3,x4,y1,y2,y3,y4]]))*jacdetc[intnodes[[i,1]],intnodes[[i,2]],x1,x2,x3,x4,y1,y2,y3,y4]*intweights[[i]],{i,1,(m+1)^2}];
+(* ===\[Equal] Ende Berechnung Elementsteifigkeitsmatrix EQUDIST ===\[Equal] *)
+
+(* ===\[Equal] Berechnung Elementmassenmatrix EQUDIST ===\[Equal] *)
+elemassenmat=Sum[(Transpose@{Table[\[Phi]qequdist[m,j][intnodes[[i,1]],intnodes[[i,2]]],{j,1,(m+1)^2}]}.{Table[\[Phi]qequdist[m,j][intnodes[[i,1]],intnodes[[i,2]]],{j,1,(m+1)^2}]})*jacdetc[intnodes[[i,1]],intnodes[[i,2]],x1,x2,x3,x4,y1,y2,y3,y4]*intweights[[i]],{i,1,(m+1)^2}];
+(* ===\[Equal] Ende Berechnung Elementmassenmatrix EQUDIST ===\[Equal] *)
+
+,
+
+method=="bernstein",
+(* ===\[Equal] Berechnung Elementsteifigkeitsmatrix Bernstein ===\[Equal] *)
+elesteifmat=Sum[((gradmatbernstein[m][intnodes[[i,1]],intnodes[[i,2]],x1,x2,x3,x4,y1,y2,y3,y4]).(Transpose[gradmatbernstein[m][intnodes[[i,1]],intnodes[[i,2]],x1,x2,x3,x4,y1,y2,y3,y4]]))*jacdetc[intnodes[[i,1]],intnodes[[i,2]],x1,x2,x3,x4,y1,y2,y3,y4]*intweights[[i]],{i,1,(m+1)^2}];
+(* ===\[Equal] Ende Berechnung Elementsteifigkeitsmatrix Bernstein ===\[Equal] *)
+
+(* ===\[Equal] Berechnung Elementmassenmatrix Bernstein ===\[Equal] *)
+elemassenmat=Sum[(Transpose@{Table[\[Phi]qbernstein[m,j][intnodes[[i,1]],intnodes[[i,2]]],{j,1,(m+1)^2}]}.{Table[\[Phi]qbernstein[m,j][intnodes[[i,1]],intnodes[[i,2]]],{j,1,(m+1)^2}]})*jacdetc[intnodes[[i,1]],intnodes[[i,2]],x1,x2,x3,x4,y1,y2,y3,y4]*intweights[[i]],{i,1,(m+1)^2}];
+(* ===\[Equal] Ende Berechnung Elementmassenmatrix Bernstein ===\[Equal] *)
+
+,
+(method!="lobatto")||(method!="equdist")||(method!="bernstein"),
+Print["Fehler! Keine Methode der Knotenverteilung gewählt!"];
+];
+
+Return[{elesteifmat,elemassenmat}];
+];
+(* ====================================================== *)
+(* ====================================================== *)
+
+(* ====================================================== *)
+(* ====================================================== *)
+(* Scheibe *)
+elementkont[m_,emodul_,roh_,\[Nu]_,svzustand_,allnodes_,method_,integrationmethod_]:=
+Module[{allnodesx,allnodesy,\[Xi]1,\[Xi]2,intnodes,intweights,dmat,dmatstress,dmatstrain,x1,x2,x3,x4,y1,y2,y3,y4,elementsteifmat,elementmassenmat,intnodeslob,intweightslob,diaglob},
+
+dmatstress=emodul/(1-\[Nu]^2)*{{1,\[Nu],0},{\[Nu],1,0},{0,0,(1-\[Nu])/2}};
+dmatstrain=emodul/((1+\[Nu])(1-2\[Nu]))*{{1-\[Nu],\[Nu],0},{\[Nu],1-\[Nu],0},{0,0,(1-2\[Nu])/2}};
+
+Which[
+svzustand=="evz",dmat=dmatstrain,
+svzustand=="esz",dmat=dmatstress
+];
+
+allnodesx=allnodes[[;;,1]];
+allnodesy=allnodes[[;;,2]];
+
+x1=allnodesx[[1]];
+x2=allnodesx[[2]];
+x3=allnodesx[[3]];
+x4=allnodesx[[4]];
+
+y1=allnodesy[[1]];
+y2=allnodesy[[2]];
+y3=allnodesy[[3]];
+y4=allnodesy[[4]];
+
+intnodes=Re@numintgld2[m][[1]];
+intweights=Re@numintgld2[m][[2]];
+
+intnodeslob=numintgld2lobatto[m][[1]]; (* Integrationsmethode Lobatto für Lobattoverteilung und Massenmatrix *)
+intweightslob=numintgld2lobatto[m][[2]];
+
+(* TODO: Warnung über schlechte Element-Form einfügen *)
+(* Table[If[jacdetc[intnodes[[i,1]],intnodes[[i,2]],x1,x2,x3,x4,y1,y2,y3,y4]>10*$MachineEpsilon,Print["Warnung: Jacobi-Determinante größer/gleich Null!"],Null],{i,1,{m+1}^2}];
+*)
+
+Which[
+method=="lobatto",
+(* ===\[Equal] Berechnung Elementsteifigkeitsmatrix LOBATTO ===\[Equal] *)
+elementsteifmat=Sum[((Transpose[bmatlobatto[m][intnodes[[i,1]],intnodes[[i,2]],x1,x2,x3,x4,y1,y2,y3,y4]].dmat.bmatlobatto[m][intnodes[[i,1]],intnodes[[i,2]],x1,x2,x3,x4,y1,y2,y3,y4])*jacdetc[intnodes[[i,1]],intnodes[[i,2]],x1,x2,x3,x4,y1,y2,y3,y4])*intweights[[i]],{i,1,(m+1)^2}];
+(* ===\[Equal] Ende Berechnung Elementsteifigkeitsmatrix LOBATTO===\[Equal] *)
+
+(* ===\[Equal] Berechnung Elementmassenmatrix LOBATTO ===\[Equal] *)
+(* Auswahl Integrationsmethode um exakt diagonale Massenmatrix zu bekommen *)
+Which[
+integrationmethod=="gl",
+elementmassenmat=roh*Sum[((Transpose[kmassmatlobatto[m][intnodes[[i,1]],intnodes[[i,2]]]].kmassmatlobatto[m][intnodes[[i,1]],intnodes[[i,2]]])*jacdetc[intnodes[[i,1]],intnodes[[i,2]],x1,x2,x3,x4,y1,y2,y3,y4])*intweights[[i]],{i,1,(m+1)^2}];
+,
+integrationmethod=="lob",
+elementmassenmat=roh*Sum[((Transpose[kmassmatlobatto[m][intnodeslob[[i,1]],intnodeslob[[i,2]]]].kmassmatlobatto[m][intnodeslob[[i,1]],intnodeslob[[i,2]]])*jacdetc[intnodeslob[[i,1]],intnodeslob[[i,2]],x1,x2,x3,x4,y1,y2,y3,y4])*intweightslob[[i]],{i,1,(m+1)^2}];
+diaglob=Diagonal[elementmassenmat];
+elementmassenmat=Table[0,2(m+1)^2,2(m+1)^2];
+Table[elementmassenmat[[i,i]]=diaglob[[i]],{i,Length[diaglob]}];
+];
+(* ===\[Equal] Ende Berechnung Elementmassenmatrix LOBATTO ===\[Equal] *)
+
+,
+method=="equdist",
+
+(* ===\[Equal] Berechnung Elementsteifigkeitsmatrix EQUDIST ===\[Equal] *)
+elementsteifmat=Sum[((Transpose[bmatequdist[m][intnodes[[i,1]],intnodes[[i,2]],x1,x2,x3,x4,y1,y2,y3,y4]].dmat.bmatequdist[m][intnodes[[i,1]],intnodes[[i,2]],x1,x2,x3,x4,y1,y2,y3,y4])*jacdetc[intnodes[[i,1]],intnodes[[i,2]],x1,x2,x3,x4,y1,y2,y3,y4])*intweights[[i]],{i,1,(m+1)^2}];
+(* ===\[Equal] Ende Berechnung Elementsteifigkeitsmatrix EQUDIST===\[Equal] *)
+
+(* ===\[Equal] Berechnung Elementmassenmatrix EQUDIST ===\[Equal] *)
+elementmassenmat=roh*Sum[((Transpose[kmassmatequdist[m][intnodes[[i,1]],intnodes[[i,2]]]].kmassmatequdist[m][intnodes[[i,1]],intnodes[[i,2]]])*jacdetc[intnodes[[i,1]],intnodes[[i,2]],x1,x2,x3,x4,y1,y2,y3,y4])*intweights[[i]],{i,1,(m+1)^2}];
+(* ===\[Equal] Ende Berechnung Elementmassenmatrix EQUDIST ===\[Equal] *)
+
+,
+
+method=="bernstein",
+
+(* ===\[Equal] Berechnung Elementsteifigkeitsmatrix bernstein ===\[Equal] *)
+elementsteifmat=Sum[((Transpose[bmatbernstein[m][intnodes[[i,1]],intnodes[[i,2]],x1,x2,x3,x4,y1,y2,y3,y4]].dmat.bmatbernstein[m][intnodes[[i,1]],intnodes[[i,2]],x1,x2,x3,x4,y1,y2,y3,y4])*jacdetc[intnodes[[i,1]],intnodes[[i,2]],x1,x2,x3,x4,y1,y2,y3,y4])*intweights[[i]],{i,1,(m+1)^2}];
+(* ===\[Equal] Ende Berechnung Elementsteifigkeitsmatrix bernstein===\[Equal] *)
+
+(* ===\[Equal] Berechnung Elementmassenmatrix bernstein ===\[Equal] *)
+elementmassenmat=roh*Sum[((Transpose[kmassmatbernstein[m][intnodes[[i,1]],intnodes[[i,2]]]].kmassmatbernstein[m][intnodes[[i,1]],intnodes[[i,2]]])*jacdetc[intnodes[[i,1]],intnodes[[i,2]],x1,x2,x3,x4,y1,y2,y3,y4])*intweights[[i]],{i,1,(m+1)^2}];
+(* ===\[Equal] Ende Berechnung Elementmassenmatrix bernstein ===\[Equal] *)
+
+,
+
+(method!="lobatto")||(method!="equdist")||(method!="bernstein"),
+Print["Fehler! Keine Methode der Knotenverteilung gewählt!"];
+];
+
+Return[{elementsteifmat,elementmassenmat}];
+];
+(* ====================================================== *)
+
+(* ====================================================== *)
+(* Scheibe *)
+(* ====================================================== *)
+elementkont2x4[emodul_,roh_,\[Nu]_,svzustand_,allnodes_]:=
+Module[{allnodesx,allnodesy,\[Xi]1,\[Xi]2,intnodes,intweights,dmat,dmatstress,dmatstrain,x1,x2,x3,x4,y1,y2,y3,y4,elementsteifmat,elementmassenmat,intnodeslob,intweightslob,diaglob,mk,mg,mint},
+
+mint=4;
+
+dmatstress=emodul/(1-\[Nu]^2)*{{1,\[Nu],0},{\[Nu],1,0},{0,0,(1-\[Nu])/2}};
+dmatstrain=emodul/((1+\[Nu])(1-2\[Nu]))*{{1-\[Nu],\[Nu],0},{\[Nu],1-\[Nu],0},{0,0,(1-2\[Nu])/2}};
+
+Which[
+svzustand=="evz",dmat=dmatstrain,
+svzustand=="esz",dmat=dmatstress
+];
+
+allnodesx=allnodes[[;;,1]];
+allnodesy=allnodes[[;;,2]];
+
+x1=allnodesx[[1]];
+x2=allnodesx[[2]];
+x3=allnodesx[[3]];
+x4=allnodesx[[4]];
+
+y1=allnodesy[[1]];
+y2=allnodesy[[2]];
+y3=allnodesy[[3]];
+y4=allnodesy[[4]];
+
+intnodes=numintgld2[mint][[1]];
+intweights=numintgld2[mint][[2]];
+
+(* ===\[Equal] Berechnung Elementsteifigkeitsmatrix LOBATTO ===\[Equal] *)
+elementsteifmat=Sum[((Transpose[bmatlobatto2x4[intnodes[[i,1]],intnodes[[i,2]],x1,x2,x3,x4,y1,y2,y3,y4]].dmat.bmatlobatto2x4[intnodes[[i,1]],intnodes[[i,2]],x1,x2,x3,x4,y1,y2,y3,y4])*jacdetc[intnodes[[i,1]],intnodes[[i,2]],x1,x2,x3,x4,y1,y2,y3,y4])*intweights[[i]],{i,1,(mint+1)*(mint+1)}];
+(* ===\[Equal] Ende Berechnung Elementsteifigkeitsmatrix LOBATTO===\[Equal] *)
+
+(* ===\[Equal] Berechnung Elementmassenmatrix LOBATTO ===\[Equal] *)
+elementmassenmat=roh*Sum[((Transpose[kmassmatlobatto2x4[intnodes[[i,1]],intnodes[[i,2]]]].kmassmatlobatto2x4[intnodes[[i,1]],intnodes[[i,2]]])*jacdetc[intnodes[[i,1]],intnodes[[i,2]],x1,x2,x3,x4,y1,y2,y3,y4])*intweights[[i]],{i,1,(mint+1)*(mint+1)}];
+(* ===\[Equal] Ende Berechnung Elementmassenmatrix LOBATTO ===\[Equal] *)
+
+Return[{elementsteifmat,elementmassenmat}];
+];
+(* ====================================================== *)
+
+(* Kopplung-Assemblierung der He-Matrizen in System-Kopplungsmatrix *)
+assembsysc[maxnodefl_,maxnodest_,coupfl_,coupst_,hemat_]:=
+Module[{kasizex,kasizey,koppmatarray,nies,i},
+(* System-Kopplungsmatrix 1 zwischen Fluid 1 und Wand *)
+(* Größe der Matrix X * Y mit X= Größe der Matrix Fluid und Y= Größe der Matrix Wand *)
+kasizex=maxnodest;
+kasizey=maxnodefl;
+koppmatarray=SparseArray[{{1,1}->0,{kasizex,kasizey}->0}]; (* Initialisierung *)
+
+nies=Length[coupst] ;
+For[i=1,i<=nies,i++,
+koppmatarray[[coupst[[i]],coupfl[[i]]]]=koppmatarray[[coupst[[i]],coupfl[[i]]]]+hemat;
+];
+Return[koppmatarray];
+];
+
+(* Assemblierung der Gesamt-System-Matrix,Einbau der Kopplungsmatrizen *)
+sysmatassemsteif[rl_,rr_,wand_,hesysleft_,hesysright_,rohair_,cair_]:=
+Module[{sizerl,sizerr,sizewand,sizesys,gesarray,posrla,posrle,poswa,poswe,posrra,posrre,hesyslefttranspose,hesysrighttranspose,atass,gessteifarray,gesmassarray},
+atass=AbsoluteTiming[
+
+sizerl=Length[rl[[1]]];
+sizerr=Length[rr[[1]]];
+sizewand=Length[wand[[1]]];
+sizesys=sizerl+sizerr+sizewand;
+
+(* Initialisierung *)
+gessteifarray=SparseArray[{{1,1}->0,{sizesys,sizesys}->0}]; 
+
+(* Anfangs- und End-Positionen in Gesamt-System-Matrix für Einbau *)
+(* Raum 1 *)
+posrla=1;
+posrle=sizerl;
+(* Wand *)
+poswa=sizerl+1;
+poswe=sizerl+sizewand;
+(* Raum 2 *)
+posrra=sizerl+sizewand+1;
+posrre=sizesys;
+
+(* =====================\[Equal] *)
+(* Steifigkeitsmatrix *)
+(* Einbau von Fluid links, Fluid rechts und Wand *)
+gessteifarray[[posrla;;posrle,posrla;;posrle]]=1/rohair*rl[[1]];
+gessteifarray[[poswa;;poswe,poswa;;poswe]]=wand[[1]];
+gessteifarray[[posrra;;posrre,posrra;;posrre]]=1/rohair*rr[[1]];
+
+(* Einbau Kopplungsmatrizen *)
+
+gessteifarray[[poswa;;poswe,posrla;;posrle]]=-hesysleft;
+gessteifarray[[poswa;;poswe,posrra;;posrre]]=hesysright;
+
+(* =====================\[Equal] *)
+
+
+];
+
+Return[gessteifarray];
+];
+
+sysmatassemmass[rl_,rr_,wand_,hesysleft_,hesysright_,rohair_,cair_]:=
+Module[{sizerl,sizerr,sizewand,sizesys,gesarray,posrla,posrle,poswa,poswe,posrra,posrre,hesyslefttranspose,hesysrighttranspose,atass,gessteifarray,gesmassarray,kmarray},
+atass=AbsoluteTiming[
+
+www1=AbsoluteTiming[
+sizerl=Length[rl[[1]]];
+sizerr=Length[rr[[1]]];
+sizewand=Length[wand[[1]]];
+sizesys=sizerl+sizerr+sizewand;
+];
+www2=AbsoluteTiming[
+(* Initialisierung *)
+gesmassarray1=SparseArray[{{1,1}->0,{sizesys,sizesys}->0}];
+gesmassarray2=SparseArray[{{1,1}->0,{sizesys,sizesys}->0}];
+gesmassarray3=SparseArray[{{1,1}->0,{sizesys,sizesys}->0}];
+gesmassarray4=SparseArray[{{1,1}->0,{sizesys,sizesys}->0}];
+gesmassarray5=SparseArray[{{1,1}->0,{sizesys,sizesys}->0}];
+];
+
+www3=AbsoluteTiming[
+(* Anfangs- und End-Positionen in Gesamt-System-Matrix für Einbau *)
+(* Raum 1 *)
+posrla=1;
+posrle=sizerl;
+(* Wand *)
+poswa=sizerl+1;
+poswe=sizerl+sizewand;
+(* Raum 2 *)
+posrra=sizerl+sizewand+1;
+posrre=sizesys;
+];
+www4=AbsoluteTiming[
+(* Transponierte Kopplungsmatrizen *)
+hesyslefttranspose=Transpose[hesysleft];
+hesysrighttranspose=Transpose[hesysright];
+];
+
+(* =====================\[Equal] *)
+(* Massenmatrix *)
+(* Einbau von Fluid links, Fluid rechts und Wand *)
+www5=AbsoluteTiming[
+gesmassarray1[[posrla;;posrle,posrla;;posrle]]=1/rohair*1/cair^2*rl[[2]];
+];
+www6=AbsoluteTiming[
+gesmassarray2[[poswa;;poswe,poswa;;poswe]]=wand[[2]];
+];
+www7=AbsoluteTiming[
+gesmassarray3[[posrra;;posrre,posrra;;posrre]]=1/rohair*1/cair^2rr[[2]];
+];
+
+(* Einbau Kopplungsmatrizen *)
+
+gesmassarray4[[posrla;;posrle,poswa;;poswe]]=hesyslefttranspose;
+gesmassarray5[[posrra;;posrre,poswa;;poswe]]=-hesysrighttranspose;
+
+
+(* =====================\[Equal] *)
+
+www9=AbsoluteTiming[
+gesmassarray=gesmassarray5+gesmassarray4+gesmassarray3+gesmassarray2+gesmassarray1;
+];
+];
+
+Return[gesmassarray];
+];
+
+
+(* Grafische Ausgabe Unterstützung *)
+(* ===========================================*)
+(* Knotennummerierung *)
+calcgraphicsinput[nodesrl_,nodesrr_,nodeswand_,nodesuvwand_]:=
+Module[{allpoints,beginwall,beginrr,localnodes,globalnodes,lengthnodesuvwand,minxleft,maxxleft,minyleft,maxyleft,minxright,maxxright,minyright,maxyright,minxwall,maxxwall,minywall,maxywall,background},
+allpoints=Point[nodesrl[[;;,1;;2]]~Join~nodesrr[[;;,1;;2]]~Join~nodeswand[[;;,1;;2]]];
+localnodes=Table[Text[Style["lF1-"<>ToString@nodesrl[[i,3]],Blue,8],nodesrl[[i,1;;2]]+0.1],{i,1,Length[nodesrl]}]~Join~Table[Text[Style["lF2-"<>ToString@nodesrr[[i,3]],Blue,8],nodesrr[[i,1;;2]]+0.1],{i,1,Length[nodesrr]}]~Join~Table[Text[Style["lW-"<>ToString@nodesuvwand[[i,3]],Red,8],{nodesuvwand[[i,1]]-0.075,nodesuvwand[[i,2]]+0.05}],{i,1,Length[nodesuvwand],2}]~Join~Table[Text[Style["lW-"<>ToString@nodesuvwand[[i,3]],Green,8],{nodesuvwand[[i,1]]-0.075,nodesuvwand[[i,2]]+0.125}],{i,2,Length[nodesuvwand],2}];
+
+beginwall=Max[nodesrl[[;;,3]]];
+beginrr=beginwall+Max[nodesuvwand[[;;,3]]];
+
+lengthnodesuvwand=Length[nodesuvwand];
+globalnodes=Table[Text[Style["gF1-"<>ToString@nodesrl[[i,3]],Gray,8],nodesrl[[i,1;;2]]-0.1],{i,1,Length[nodesrl]}]~Join~Table[Text[Style["gF2-"<>ToString@(nodesrr[[i,3]]+beginrr),Gray,8],nodesrr[[i,1;;2]]-0.1],{i,1,Length[nodesrr]}]~Join~Table[Text[Style["gWu-"<>ToString@(nodesuvwand[[i,3]]+beginwall),Gray,8],{nodesuvwand[[i,1]]+0.075,nodesuvwand[[i,2]]-0.05}],{i,1,Length[nodesuvwand],2}]~Join~Table[Text[Style["gWv-"<>ToString@(nodesuvwand[[i,3]]+beginwall),Gray,8],{nodesuvwand[[i,1]]+0.075,nodesuvwand[[i,2]]-0.125}],{i,2,Length[nodesuvwand],2}];
+
+minxleft=Min[nodesrl[[;;,1]]];
+maxxleft=Max[nodesrl[[;;,1]]];
+minyleft=Min[nodesrl[[;;,2]]];
+maxyleft=Max[nodesrl[[;;,2]]];
+
+minxright=Min[nodesrr[[;;,1]]];
+maxxright=Max[nodesrr[[;;,1]]];
+minyright=Min[nodesrr[[;;,2]]];
+maxyright=Max[nodesrr[[;;,2]]];
+
+minxwall=Min[nodeswand[[;;,1]]];
+maxxwall=Max[nodeswand[[;;,1]]];
+minywall=Min[nodeswand[[;;,2]]];
+maxywall=Max[nodeswand[[;;,2]]];
+
+background={{EdgeForm[Thin],LightBlue,Rectangle[{minxleft,minyleft},{maxxleft,maxyleft}]}}~Join~{{EdgeForm[Thin],LightBlue,Rectangle[{minxright,minyright},{maxxright,maxyright}]}}~Join~{{EdgeForm[Thin],LightGray,Rectangle[{minxwall,minywall},{maxxwall,maxywall}]}};
+
+
+Return[{background,allpoints,localnodes,globalnodes}];
+];
+(* ===========================================*)
+(* ===========================================*)
+(* Elementlinien *)
+graphicselementslines[elenx_,eleny_,elesx_,elesy_,dimlayers_]:=
+Module[{dwand,draumrl,raumlx,raumly,epxrl,epyrl,linesvertrl,lineshorrl,xstartrr,epxrr,epyrr,linesvertrr,lineshorrr,xstartw,wandlengthy,epxw,epyw,linesvertw,lineshorw},
+dwand=Total[dimlayers];
+draumrl=elenx*elesx;
+raumlx=elenx*elesx;
+raumly=eleny*elesy;
+
+(* Raum rl *)
+epxrl=Range[raumlx/elenx,raumlx-raumlx/elenx,raumlx/elenx]; (* Eckpunkte x *)
+epyrl=Range[raumly/eleny,raumly-raumly/eleny,raumly/eleny];(* Eckpunkte y *)
+linesvertrl={Dashed,Blue,Table[Line[{{epxrl[[i]],0},{epxrl[[i]],raumly}}],{i,1,Length[epxrl]}]}; (* Elementlinien Raum links *)
+lineshorrl={Dashed,Blue,Table[Line[{{0,epyrl[[i]]},{raumlx,epyrl[[i]]}}],{i,1,Length[epyrl]}]};(* Elementlinien Raum rechts *)
+
+(* Raum rr *)
+xstartrr=dwand+draumrl;
+epxrr=Range[raumlx/elenx+xstartrr,raumlx-raumlx/elenx+xstartrr,raumlx/elenx]; (* Eckpunkte x *)
+epyrr=Range[raumly/eleny,raumly-raumly/eleny,raumly/eleny];(* Eckpunkte y *)
+linesvertrr={Dashed,Blue,Table[Line[{{epxrr[[i]],0},{epxrr[[i]],raumly}}],{i,1,Length[epxrr]}]}; (* Elementlinien Raum links *)
+lineshorrr={Dashed,Blue,Table[Line[{{0+xstartrr,epyrr[[i]]},{raumlx+xstartrr,epyrr[[i]]}}],{i,1,Length[epyrr]}]};(* Elementlinien Raum rechts *)
+
+
+(* Wand *)
+xstartw=draumrl;
+wandlengthy=Total[dimlayers];
+
+epxw=Table[xstartw+Total @dimlayers[[1;;i]],{i,1,Length[dimlayers]-1}];
+epyw=Range[raumly/eleny,raumly-raumly/eleny,raumly/eleny]; (* Eckpunkte y *)
+linesvertw={Dashed,Gray,Table[Line[{{epxw[[i]],0},{epxw[[i]],raumly}}],{i,1,Length[epxw]}]}; (* Elementlinien Raum links *)
+lineshorw={Dashed,Gray,Table[Line[{{xstartw,epyw[[i]]},{xstartw+wandlengthy,epyw[[i]]}}],{i,1,Length[epyw]}]};(* Elementlinien Raum rechts *)
+
+Return[{linesvertrl,lineshorrl,linesvertrr,lineshorrr,linesvertw,lineshorw}];
+];
+(* ===========================================*)
+
+
+(* More supplimentary functions *)
+(* Berechne Impedanz für gegebene Materialwerte des Fluids und gewünschten Reflexionsfaktor *)
+imp[r_,cair_,\[Rho]air_]:=Module[{z1},
+z1=cair*\[Rho]air;
+Return@NSolve[(z2-z1)/(z2+z1)==r,z2][[1,1,2]]
+];
+
+(* Berechne Average Sound Pressure Level durch Integration der Knotenpunkte *)
+avsplelementleft[element_,spllv_,method_,m_,rl_]:=
+Module[{npelement,splele,avgspl},
+Which[
+method=="equdist",
+npelement=rl[[3]][[element]];
+splele=spllv[[npelement]];
+avgspl=intfuncequdist[m][splele];
+Return[avgspl],
+
+method=="bernstein",
+npelement=rl[[3]][[element]];
+splele=spllv[[npelement]];
+avgspl=intfuncbernstein[m][splele];
+Return[avgspl],
+
+method=="lobatto",
+npelement=rl[[3]][[element]];
+splele=spllv[[npelement]];
+avgspl=intfunclob[m][splele];
+Return[avgspl];
+];
+
+];
+
+avsplelementright[element_,splrv_,method_,m_,rr_]:=
+Module[{npelement,splele,avgspl},
+Which[
+method=="equdist",
+npelement=rr[[3]][[element]];
+splele=splrv[[npelement]];
+avgspl=intfuncequdist[m][splele];
+Return[avgspl],
+
+method=="bernstein",
+npelement=rr[[3]][[element]];
+splele=splrv[[npelement]];
+avgspl=intfuncbernstein[m][splele];
+Return[avgspl],
+
+method=="lobatto",
+npelement=rr[[3]][[element]];
+splele=splrv[[npelement]];
+avgspl=intfunclob[m][splele];
+Return[avgspl];
+];
+];
+
+
+
+(* Berechne Punktwolke für jedes Element \[Rule] Lösung für Element *)
+calcelevals[elesolnodes_,elesx_,elesy_,m_,method_,unterteilungen_]:=
+Module[{nodvals},
+Which[
+method=="equdist",
+nodvals=Flatten[Table[{x1,x2,elesolequdist[m][elesolnodes,x1,x2,elesx,elesy][[1]]},{x1,0,elesx,elesx/unterteilungen},{x2,0,elesy,elesy/unterteilungen}],1];
+Return[nodvals];,
+
+method=="bernstein",
+nodvals=Flatten[Table[{x1,x2,elesolbernstein[m][elesolnodes,x1,x2,elesx,elesy][[1]]},{x1,0,elesx,elesx/unterteilungen},{x2,0,elesy,elesy/unterteilungen}],1];
+Return[nodvals];,
+
+method=="lobatto",
+nodvals=Flatten[Table[{x1,x2,elesollob[m][elesolnodes,x1,x2,elesx,elesy][[1]]},{x1,0,elesx,elesx/unterteilungen},{x2,0,elesy,elesy/unterteilungen}],1];
+Return[nodvals];
+];
+];
+
+
+
+(* Rückrechnung auf Elementlösung, not really needed here, only for testing purpose, can be a lot faster... *)
+calcback[dcw_,inztablinks_,sollistlinks_,nodelistlinks_,inztabrechts_,sollistrechts_,nodelistrechts_,m_,elenx_,eleny_,elesx_,elesy_,nodemethod_,xrange_,yrange_]:=
+Block[{sol,elenodesl,elesolnodesl,elenodesr,elesolnodesr,alleeckenl,alleeckenr,soldetaillinks,soldetailrechts},
+
+fromxtoxi[eckknoten_,x1real_,x2real_]:=
+Module[{x1h,x2h,\[Xi]1,\[Xi]2,kx1,kx2,kx3,kx4,ky1,ky2,ky3,ky4,x1,x2},
+x1h=eckknoten[[1]] (-1+\[Xi]1) (-1+\[Xi]2)+eckknoten[[4]] \[Xi]1 \[Xi]2+eckknoten[[3]] (\[Xi]1-\[Xi]1 \[Xi]2)+eckknoten[[2]] (\[Xi]2-\[Xi]1 \[Xi]2);
+x2h=eckknoten[[5]] (-1+\[Xi]1) (-1+\[Xi]2)+eckknoten[[8]] \[Xi]1 \[Xi]2+eckknoten[[7]] (\[Xi]1-\[Xi]1 \[Xi]2)+eckknoten[[6]] (\[Xi]2-\[Xi]1 \[Xi]2);
+sol=Quiet@Solve[{x1h==x1,x2h==x2},{\[Xi]1,\[Xi]2},Reals]/.{x1->x1real,x2->x2real};
+Return[{sol[[1,1,2]],sol[[1,2,2]]}]
+];
+
+(* Knoten der einzelnen Elemente und Lösungswerte dieser Knoten für jedes Element im linken Raum *)
+Table[
+elenodesl[i]=inztablinks[[i]];
+elesolnodesl[i]=sollistlinks[[elenodesl[i],3]],
+{i,1,elenx*eleny}];
+
+(*... und im rechten Raum *)
+Table[
+elenodesr[i]=inztabrechts[[i]];
+elesolnodesr[i]=sollistrechts[[elenodesr[i],3]],
+{i,1,elenx*eleny}];
+
+
+Clear[elesolalllinkscompiled,elesolallrechtscompiled];
+
+Which[
+nodemethod=="lobatto",
+(* Elementlösungen links, rechts und wand *)
+(* links *)
+elesolalllinkscompiled=
+Compile[{{xi1,_Real},{xi2,_Real},{elesolnodes,_Complex,1}},Sum[elesolnodes[[i]]*(\[Phi]qlobatto[m,i][xi1,xi2]),{i,1,(m+1)^2}]
+,"RuntimeOptions"->{"EvaluateSymbolically"->False}
+];
+(* rechts *)
+elesolallrechtscompiled=
+Compile[{{xi1,_Real},{xi2,_Real},{elesolnodes,_Complex,1}},Sum[elesolnodes[[i]]*(\[Phi]qlobatto[m,i][xi1,xi2]),{i,1,(m+1)^2}]
+,"RuntimeOptions"->{"EvaluateSymbolically"->False}
+];
+,
+nodemethod=="equdist",
+(* Elementlösungen links, rechts und wand *)
+(* links *)
+elesolalllinkscompiled=
+Compile[{{xi1,_Real},{xi2,_Real},{elesolnodes,_Complex,1}},Sum[elesolnodes[[i]]*(\[Phi]qequdist[m,i][xi1,xi2]),{i,1,(m+1)^2}]
+,"RuntimeOptions"->{"EvaluateSymbolically"->False}
+];
+(* rechts *)
+elesolallrechtscompiled=
+Compile[{{xi1,_Real},{xi2,_Real},{elesolnodes,_Complex,1}},Sum[elesolnodes[[i]]*(\[Phi]qequdist[m,i][xi1,xi2]),{i,1,(m+1)^2}]
+,"RuntimeOptions"->{"EvaluateSymbolically"->False}
+];
+,
+nodemethod=="bernstein",
+(* Elementlösungen links, rechts und wand *)
+(* links *)
+elesolalllinkscompiled=
+Compile[{{xi1,_Real},{xi2,_Real},{elesolnodes,_Complex,1}},Sum[elesolnodes[[i]]*(\[Phi]qbernstein[m,i][xi1,xi2]),{i,1,(m+1)^2}]
+,"RuntimeOptions"->{"EvaluateSymbolically"->False}
+];
+(* rechts *)
+elesolallrechtscompiled=
+Compile[{{xi1,_Real},{xi2,_Real},{elesolnodes,_Complex,1}},Sum[elesolnodes[[i]]*(\[Phi]qbernstein[m,i][xi1,xi2]),{i,1,(m+1)^2}]
+,"RuntimeOptions"->{"EvaluateSymbolically"->False}
+];
+];
+
+(* Alle Eckkoordinaten der Elemente im linken Raum*)
+Module[{elekoords,kx1,kx2,kx3,kx4,ky1,ky2,ky3,ky4},
+Table[
+(* Alle Elementknotenkoordinaten *)
+elekoords=nodelistlinks[[elenodesl[i]]];
+(* Koordinaten der Eckpunkte *)
+kx1=elekoords[[1,1]];
+ky1=elekoords[[1,2]];
+kx3=elekoords[[m+1,1]];
+ky3=elekoords[[m+1,2]];
+kx2=elekoords[[(m+1)^2-m,1]];
+ky2=elekoords[[(m+1)^2-m,2]];
+kx4=elekoords[[(m+1)^2,1]];
+ky4=elekoords[[(m+1)^2,2]];
+alleeckenl[i]={kx1,kx2,kx3,kx4,ky1,ky2,ky3,ky4};
+(* Print[alleecken]; *)
+,{i,1,elenx*eleny}
+];
+];
+(* und im rechten Raum *)
+Module[{elekoords,kx1,kx2,kx3,kx4,ky1,ky2,ky3,ky4},
+Table[
+(* Alle Elementknotenkoordinaten *)
+elekoords=nodelistrechts[[elenodesr[i]]];
+(* Koordinaten der Eckpunkte *)
+kx1=elekoords[[1,1]];
+ky1=elekoords[[1,2]];
+kx3=elekoords[[m+1,1]];
+ky3=elekoords[[m+1,2]];
+kx2=elekoords[[(m+1)^2-m,1]];
+ky2=elekoords[[(m+1)^2-m,2]];
+kx4=elekoords[[(m+1)^2,1]];
+ky4=elekoords[[(m+1)^2,2]];
+alleeckenr[i]={kx1,kx2,kx3,kx4,ky1,ky2,ky3,ky4};
+(* Print[alleecken]; *)
+,{i,1,elenx*eleny}
+];
+];
+
+
+(* Test welches Element bei welcher Position in x- und y- Richtung gewählt werden soll *)
+(* Welches Element liegt an welcher xpos,ypos Stelle *)
+(* Linker Raum *)
+whichelementlinks[xpos_,ypos_]:=
+Module[{xrangeelements,xtest,elemxrowpos,yrangeelements,ytest,elemyrowpos,elementnumberlh},
+
+xrangeelements=Range[0.,elenx*elesx,elesx];
+xtest=SelectFirst[xrangeelements,#>=xpos&];
+elemxrowpos=elenx-((Position[xrangeelements,xtest])[[1,1]]-1)+1;
+If[elemxrowpos==Length[xrangeelements],elemxrowpos=elemxrowpos-1,Null];
+
+yrangeelements=Range[0,eleny*elesy,elesy];
+ytest=SelectFirst[yrangeelements,#>=ypos&];
+elemyrowpos=(Position[yrangeelements,ytest])[[1,1]]-1;
+If[elemyrowpos==0,elemyrowpos=1,Null];
+
+elementnumberlh=Range[elemxrowpos*eleny-eleny+1,elemxrowpos*eleny][[elemyrowpos]];
+Return[elementnumberlh];
+];
+
+(* Rechter Raum *)
+whichelementrechts[xpos_,ypos_]:=
+Module[{xrangeelements,xtest,elemxrowpos,yrangeelements,ytest,elemyrowpos,elementnumberlh},
+
+xrangeelements=Range[0.,elenx*elesx,elesx];
+xtest=SelectFirst[xrangeelements,#>=xpos&];
+elemxrowpos=((Position[xrangeelements,xtest])[[1,1]]-1);
+If[elemxrowpos==0,elemxrowpos=1,Null];
+
+yrangeelements=Range[0,eleny*elesy,elesy];
+ytest=SelectFirst[yrangeelements,#>=ypos&];
+elemyrowpos=(Position[yrangeelements,ytest])[[1,1]]-1;
+If[elemyrowpos==0,elemyrowpos=1,Null];
+
+elementnumberlh=Range[elemxrowpos*eleny-eleny+1,elemxrowpos*eleny][[elemyrowpos]];
+Return[elementnumberlh];
+];
+
+
+
+(* Erstellen der Gesamtlösung aus den Elementen *)
+(* Links *)
+Block[{ele,elexis,elesol,xkoords,ykoords,elesolh},
+elesolh=Flatten[Table[
+ele=whichelementlinks[x,y];
+elexis=fromxtoxi[alleeckenl[ele],x,y];
+elesolalllinkscompiled[elexis[[1]],elexis[[2]],elesolnodesl[ele]]
+,{y,yrange[[1]],yrange[[2]],dcw},{x,xrange[[1]],xrange[[2]],dcw}]];
+xkoords=Flatten[Table[x,{y,yrange[[1]],yrange[[2]],dcw},{x,xrange[[1]],xrange[[2]],dcw}]];
+ykoords=Flatten[Table[y,{y,yrange[[1]],yrange[[2]],dcw},{x,xrange[[1]],xrange[[2]],dcw}]];
+soldetaillinks=Transpose[{xkoords}~Join~{ykoords}~Join~{elesolh}];
+];
+
+(* Rechts *)
+Block[{ele,elexis,elesol,xkoords,ykoords,elesolh},
+elesolh=Flatten[Table[
+ele=whichelementrechts[x,y];
+elexis=fromxtoxi[alleeckenr[ele],x,y];
+elesolallrechtscompiled[elexis[[1]],elexis[[2]],elesolnodesr[ele]]
+,{y,yrange[[1]],yrange[[2]],dcw},{x,xrange[[1]],xrange[[2]],dcw}]];
+xkoords=Flatten[Table[x,{y,yrange[[1]],yrange[[2]],dcw},{x,xrange[[1]],xrange[[2]],dcw}]];
+ykoords=Flatten[Table[y,{y,yrange[[1]],yrange[[2]],dcw},{x,xrange[[1]],xrange[[2]],dcw}]];
+soldetailrechts=Transpose[{xkoords}~Join~{ykoords}~Join~{elesolh}];
+];
+
+
+Return[{soldetaillinks,soldetailrechts}];
+];
+
+
+
+
+
+whereami="Initialisiere...";
+Clear[solvar];
+Style["Berechnung...",16,Bold]
+Print["Momentan bei:",Dynamic[whereami]];
+
+(* ========================================================================================== *)
+(* parameter *)
+freq=1000;
+ne=20;
+nelinks=ne;
+nerechts=ne;
+m=4;
+nodemethod="lobatto";
+integrationmethodwand="gl"; (* Globale Variable zur Definition der Integrationsmethode der Wand "lob" oder "gl" *)
+integrationmethodfluid="lob";  (* Globale Variable zur Definition der Integrationsmethode der Fluiddomänen "lob" oder "gl" *)
+showgraphics=True;
+(* ========================================================================================== *)
+
+(* ======================================================================== *)
+(* Wand *)
+dimlayers={0.001,0.001,0.4};
+damp={0.5,0.5,0.5};
+emodul={10*10^9,10*10^8,10*10^7};
+roh={3000,2000,1000};
+mu={0.1,0.2,0.3};
+svzustand="evz";
+emodul=Table[emodul[[i]]*(1+I*damp[[i]]),{i,1,Length[emodul]}];
+(* ======================================================================== *)
+
+(* ========================================================================================== *)
+(* Globale Variablen in Funktion calcfsi*)
+zilinks=13260; (* Impedanz links *)
+zirechts=13260; (* Impedanz rechts *)
+quellenpos={{0.0,0.0},{0.5,0.5}};
+rohair=1.21;
+cair=340; (* Schallgeschwindigkeit der Luft für beide Räume *)
+rxsizerl=3.0; (* Globale Variable zur Festlegung der Größe der Räume in x-Richtung Raum links *)
+rxsizerr=3.0; (* Globale Variable zur Festlegung der Größe der Räume in x-Richtung Raum rechts *)
+rysize=3.0;  (* Globale Variable zur Festlegung der Größe der Räume in y-Richtung *)
+usemkxmgelements=True; (* Globale Variable zur Festlegung ob mkxmg Elemente für dünne Wände verwendet werden sollen *)
+calcsyscondition=False; (* Globale Variable zur Festlegung ob Kondition berechnet werden soll *)
+intspl=True; (* Globale Variable zur Festlegung ob der mittlere Schalldruck integriert werden soll *)
+howtotreatdiri="delete";(* Behandlung von Dirichlet Randbedingungen bei Wand \[Rule] Verschiebungen=0, "delete" für Löschen von Zeilen und Spalten und "transform" für Anpassung *)
+solvar=calcfsi[m,nodemethod,freq,nelinks,nerechts,ne];
+(* ========================================================================================== *)
+
+(* ========================================================================================== *)
+(* Variablen unter diesem Abschnitt löschen *)
+Clear[xlisth,ylisth,xtableft,xytableft,xtabright,xytabright];
+Clear[sollefthreal,solrighthreal,solwanduhreal,solwandvhreal,sollefthim,solrighthim,solwanduhim,solwandvhim,spllinks,splrechts];
+Clear[wanddetails];
+(* ========================================================================================== *)
+
+(* ========================================================================================== *)
+(* Ausgewählte Knotenwerte der Lösungen *)
+xlisth=Range[0,Round[rxsizerl]];
+ylisth=Range[0,Round[rysize]];
+xtableft=Flatten[Table[Cases[solvar[[5]],_?(#[[1]]==xlisth[[i]]&)],{i,1,Length[xlisth]}],1];
+xytableft=Flatten[Table[Cases[xtableft,_?(#[[2]]==ylisth[[i]]&)],{i,1,Length[ylisth]}],1];
+
+xtabright=Flatten[Table[Cases[solvar[[7]],_?(#[[1]]==xlisth[[i]]&)],{i,1,Length[xlisth]}],1];
+xytabright=Flatten[Table[Cases[xtabright,_?(#[[2]]==ylisth[[i]]&)],{i,1,Length[ylisth]}],1];
+(* ========================================================================================== *)
+
+(* ========================================================================================== *)
+(* Lösung von Fluid links, Wand u, Wand v, Fluid rechts Realteile und Imaginärteile sowie Schalldrucklevel*)
+sollefthreal=Transpose[{solvar[[5]][[;;,1]],solvar[[5]][[;;,2]],Re@solvar[[5]][[;;,3]]}];
+solrighthreal=Transpose[{solvar[[7]][[;;,1]],solvar[[7]][[;;,2]],Re@solvar[[7]][[;;,3]]}];
+solwanduhreal=Transpose[{solvar[[6]][[;;;;2,1]],solvar[[6]][[;;;;2,2]],Re@solvar[[6]][[;;;;2,3]]}];
+solwandvhreal=Transpose[{solvar[[6]][[2;;;;2,1]],solvar[[6]][[2;;;;2,2]],Re@solvar[[6]][[2;;;;2,3]]}];
+
+sollefthim=Transpose[{solvar[[5]][[;;,1]],solvar[[5]][[;;,2]],Im@solvar[[5]][[;;,3]]}];
+solrighthim=Transpose[{solvar[[7]][[;;,1]],solvar[[7]][[;;,2]],Im@solvar[[7]][[;;,3]]}];
+solwanduhim=Transpose[{solvar[[6]][[;;;;2,1]],solvar[[6]][[;;;;2,2]],Im@solvar[[6]][[;;;;2,3]]}];
+solwandvhim=Transpose[{solvar[[6]][[2;;;;2,1]],solvar[[6]][[2;;;;2,2]],Im@solvar[[6]][[2;;;;2,3]]}];
+
+spllinks=solvar[[12]][[1]];
+splrechts=solvar[[12]][[2]];
+
+spllinkssabadjusted=solvar[[13]][[1]];
+splrechtssabadjusted=solvar[[13]][[2]];
+(* ========================================================================================== *)
+
+(* ========================================================================================== *)
+(* Textausgabe *)
+Style["Wandaufbau",16,Bold]
+wanddetails=solvar[[11]][[1]];
+Print["Layers nach Anpasung: ",wanddetails[[1]]," Emoduls:",wanddetails[[2]]," Rohs:",wanddetails[[3]]," Mus:",wanddetails[[4]]," Layerelemente-Ordnung:",wanddetails[[5]]];
+
+Style["Elemente",16,Bold]
+Print["Elemente linker Raum:",solvar[[11]][[2]],"   Elemente linker Raum:",solvar[[11]][[3]]];
+
+Style["Timings",16,Bold]
+Print["m=",m,"   ne=",ne,"   DoFs=",solvar[[4]]//Length];
+Print["Einzeltimings aufaddiert: ",Total@solvar[[9]][[;;,1,1]]];
+Grid[Transpose[{solvar[[9]][[;;,2]],solvar[[9]][[;;,1,1]]}],Alignment->Left]
+(* ========================================================================================== *)
+
+(* ========================================================================================== *)
+Style["Linker Raum und rechter Raum",16,Bold]
+Row[{
+Framed@Grid[{{"SEM-Lösung links","",""}}~Join~{{"Pos x","Pos y","Wert"}}~Join~xytableft]
+,
+Framed@Grid[{{"SEM-Lösung  rechts","",""}}~Join~{{"Pos x","Pos y","Wert"}}~Join~xytabright]
+}]
+(* ========================================================================================== *)
+
+(* ========================================================================================== *)
+Style["Knotenpunkte",16,Bold]
+Row[{
+Graphics[{
+If[showgraphics==True,{Blue,PointSize[Small],Point[sollefthreal[[;;,{1,2}]]]},Point[{{0,0}}]]
+},ImageSize->{400,400}]
+,
+Graphics[{
+If[showgraphics==True,{Brown,PointSize[Small],Point[Transpose[{solwanduhreal[[;;,1]]*1.005,solwanduhreal[[;;,2]]*1.005}]]},Point[{{0,0}}]]
+},ImageSize->{200,400}]
+,
+Graphics[{
+If[showgraphics==True,{Blue,PointSize[Small],Point[Transpose[{solrighthreal[[;;,1]]+Max[solwanduhreal[[;;,1]]],solrighthreal[[;;,2]]}]]},Point[{{0,0}}]]
+},ImageSize->{400,400}]
+}]
+
+txtsizepres=40;
+Style["Realteil von Raum links, Wand u- v-Teile, Raum rechts",16,Bold]
+Row[{
+ListContourPlot[If[showgraphics==True,sollefthreal,{{0,0,0},{0,0,0},{0,0,0}}],
+ImageSize->{500,500},
+AspectRatio->rysize/rxsizerr,ClippingStyle->Automatic,ColorFunction->"RedBlueTones",Contours->20,PlotRange->{-5,5},Frame->True,
+PlotRangePadding->0,ContourStyle->Opacity[0.025],
+FrameStyle->Directive[FontFamily->"CMUSerif",txtsizepres,Black],
+PlotLegends->Placed[{LabelStyle->Directive[FontFamily->"CMUSerif",txtsizepres,Black]},Left]
+]
+(*
+,
+ListContourPlot[If[showgraphics\[Equal]True,solwanduhreal,{{0,0,0},{0,0,0},{0,0,0}}],ImageSize\[Rule]{250/2,250},AspectRatio\[Rule]3],
+ListContourPlot[If[showgraphics\[Equal]True,solwandvhreal,{{0,0,0},{0,0,0},{0,0,0}}],ImageSize\[Rule]{250/2,250},AspectRatio\[Rule]3]
+*)
+,
+"     "
+,
+ListContourPlot[If[showgraphics==True,solrighthreal,{{0,0,0},{0,0,0},{0,0,0}}],
+ImageSize->{500,500},
+AspectRatio->rysize/rxsizerr,ClippingStyle->Automatic,ColorFunction->"RedBlueTones",Contours->20,PlotRange->All,Frame->True,
+PlotRangePadding->0,ContourStyle->Opacity[0.025],
+FrameStyle->Directive[FontFamily->"CMUSerif",txtsizepres,Black],
+PlotLegends->Placed[{LabelStyle->Directive[FontFamily->"CMUSerif",txtsizepres,Black]},Right]
+]
+}]
+
+Style["Imaginärteil von Raum links, Wand u- v-Teile, Raum rechts",16,Bold]
+Row[{
+ListContourPlot[If[showgraphics==True,sollefthim,{{0,0,0},{0,0,0},{0,0,0}}],ImageSize->{250,250},AspectRatio->rysize/rxsizerl],
+ListContourPlot[If[showgraphics==True,solwanduhim,{{0,0,0},{0,0,0},{0,0,0}}],ImageSize->{250/2,250},AspectRatio->3],
+ListContourPlot[If[showgraphics==True,solwandvhim,{{0,0,0},{0,0,0},{0,0,0}}],ImageSize->{250/2,250},AspectRatio->3],
+ListContourPlot[If[showgraphics==True,solrighthim,{{0,0,0},{0,0,0},{0,0,0}}],ImageSize->{250,250},AspectRatio->rysize/rxsizerr]
+}]
+
+Style["Schalldrucklevel links, Schalldrucklevel rechts",16,Bold]
+Row[{
+ListDensityPlot[
+If[showgraphics==True,spllinks,{{0,0,0},{0,0,0},{0,0,0}}],
+ImageSize->{500,500},
+AspectRatio->rysize/rxsizerr,ClippingStyle->Automatic,ColorFunction->"SunsetColors",PlotRange->All,Frame->True,
+PlotRangePadding->0,
+FrameStyle->Directive[FontFamily->"CMUSerif",txtsizepres,Black],
+PlotLegends->Placed[{LabelStyle->Directive[FontFamily->"CMUSerif",txtsizepres,Black]},Left]
+],
+"     "
+,
+ListDensityPlot[
+If[showgraphics==True,splrechts,{{0,0,0},{0,0,0},{0,0,0}}],
+ImageSize->{500,500},
+AspectRatio->rysize/rxsizerr,ClippingStyle->Automatic,ColorFunction->"SunsetColors",PlotRange->{10,40},Frame->True,
+PlotRangePadding->0,
+FrameStyle->Directive[FontFamily->"CMUSerif",txtsizepres,Black],
+PlotLegends->Placed[{LabelStyle->Directive[FontFamily->"CMUSerif",txtsizepres,Black]},Right]
+]
+}]
+Style["Schalldrucklevel links, Schalldrucklevel rechts",16,Bold]
+Print["Schalldrucklevel gemittelt:",solvar[[10]]];
+Print["R=",solvar[[10]][[1]]-solvar[[10]][[2]]];
+
+(* ========================================================================================== *)
