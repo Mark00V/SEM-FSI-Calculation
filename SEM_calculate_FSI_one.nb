@@ -2,7 +2,7 @@
 
 (* ============================================== *)
 (* Initialize compiled shape functions and supplimentary compiled functions *)
-Needs["initsmoll`"]; (* initsmoll for order 1,2,3,4 *)
+Needs["initsmoll`"]; (* initsmoll for order 1,2,3,4 / initbig for order 1,2,3,4,5,6,8,10 2D 1-20 1D*)
 <<Developer`
 (* ============================================== *)
 
